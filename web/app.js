@@ -1291,26 +1291,13 @@ function viewListingDetail(view, id) {
       el("th", {}, "Kiedy"),
       el("th", {}, "Hash"),
       el("th", { class: "num" }, "Cena"),
-      el("th", {}, "Payload"),
     )));
     const tbody = el("tbody");
     for (const s of snapshots.slice().reverse()) {
-      const payloadId = `payload-${s.id}`;
-      const toggle = el("span", { class: "payload-toggle", onclick: () => {
-        const node = document.getElementById(payloadId);
-        if (!node) return;
-        if (!node.dataset.loaded) {
-          const row = query(state.db, "SELECT payload_json FROM listing_snapshots WHERE id = ?", [s.id])[0];
-          node.textContent = row?.payload_json ? JSON.stringify(JSON.parse(row.payload_json), null, 2) : "(empty)";
-          node.dataset.loaded = "1";
-        }
-        node.classList.toggle("open");
-      }}, "toggle JSON");
       tbody.appendChild(el("tr", { class: "no-click" },
         el("td", { class: "tabular muted" }, formatDate(s.captured_at)),
         el("td", { class: "muted" }, s.snapshot_hash.slice(0, 12)),
         el("td", { class: "num tabular" }, formatPrice(s.price_amount)),
-        el("td", {}, toggle, el("pre", { id: payloadId, class: "payload-json" })),
       ));
     }
     table.appendChild(tbody);

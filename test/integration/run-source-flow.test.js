@@ -203,21 +203,22 @@ test("legacy value_added_services reorder heals hash drift without emitting chan
   await driver.runOnce({ ...listingRoute(listingHtml), ...detailRoute() });
 
   const row = getListing(driver.db, FIXTURE_DETAIL_ID);
+  // Field map jest teraz rekonstruowany z payload_json (migration 0005), więc
+  // żeby zasymulować "legacy" stan w którym w bazie siedzi nieznormalizowana
+  // kolejność value_added_services, podmieniamy payload_json snapshotu.
   const snapshot = driver.db
-    .prepare("SELECT field_map_json FROM listing_snapshots WHERE id = ?")
+    .prepare("SELECT payload_json FROM listing_snapshots WHERE id = ?")
     .get(row.last_snapshot_id);
-  const fieldMap = JSON.parse(snapshot.field_map_json);
-  const normalizedServices = JSON.parse(fieldMap.value_added_services || "[]");
+  const payload = JSON.parse(snapshot.payload_json);
+  const normalizedServices = payload.value_added_services || [];
 
-  fieldMap.value_added_services = JSON.stringify(
-    normalizedServices
-      .slice()
-      .reverse()
-      .map((service) => ({ __typename: "AdValueAddedService", ...service })),
-  );
+  payload.value_added_services = normalizedServices
+    .slice()
+    .reverse()
+    .map((service) => ({ __typename: "AdValueAddedService", ...service }));
   driver.db
-    .prepare("UPDATE listing_snapshots SET field_map_json = ? WHERE id = ?")
-    .run(JSON.stringify(fieldMap), row.last_snapshot_id);
+    .prepare("UPDATE listing_snapshots SET payload_json = ? WHERE id = ?")
+    .run(JSON.stringify(payload), row.last_snapshot_id);
   driver.db
     .prepare("UPDATE listings SET last_snapshot_hash = ? WHERE id = ?")
     .run("legacy-reorder-hash", row.id);

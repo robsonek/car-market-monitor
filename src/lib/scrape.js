@@ -7,7 +7,7 @@ import {
 } from "./marketplace-source.js";
 import { PARAM_COLUMNS } from "./marketplace-source-params.js";
 import { diffValueAddedServices } from "../../shared/value-added-services.js";
-import { HttpError, nowIso, randomId, sha256Hex, sleep, stableStringify } from "./utils.js";
+import { HttpError, flattenForDiff, nowIso, randomId, sha256Hex, sleep, stableStringify } from "./utils.js";
 
 export const RUN_STATUSES = {
   SUCCESS: "SUCCESS",
@@ -728,7 +728,10 @@ function insertSnapshot(db, { snapshotId, listingId, runId, capturedAt, hash, de
     detail.year != null ? String(detail.year) : null,
     detail.description_text,
     stableStringify(detail.payload),
-    stableStringify(detail.field_map),
+    // field_map_json jest teraz wyliczany dynamicznie z payload_json w
+    // loadFieldMap() — patrz migration 0005. Kolumna pozostaje NOT NULL dla
+    // kompatybilności schematu, więc piszemy pusty string.
+    "",
   );
 }
 
@@ -749,10 +752,30 @@ function insertChange(db, change) {
   );
 }
 
+// Field map rekonstruujemy z payload_json zamiast trzymać w osobnej kolumnie.
+// Historycznie field_map_json był największym składnikiem bazy (~36 MB z ~70
+// MB) i w dużej części duplikował dane z payload_json. Konwersja jest tania
+// (JSON.parse + flatten), a uruchamia się tylko dla poprzedniego snapshotu
+// przy wykrywaniu zmian.
+//
+// WAŻNE: listing_card MUSI zostać wycięty z payloadu przed flattenem.
+// marketplace-source.js celowo trzyma listing_card tylko w payload, ale NIE w
+// field_map, bo page_number/page_position rotują co run i generowałyby
+// phantom diffy. Tu utrzymujemy ten sam kontrakt.
 function loadFieldMap(db, snapshotId) {
   if (!snapshotId) return {};
-  const row = db.prepare("SELECT field_map_json FROM listing_snapshots WHERE id = ?").get(snapshotId);
-  return row?.field_map_json ? JSON.parse(row.field_map_json) : {};
+  const row = db.prepare("SELECT payload_json FROM listing_snapshots WHERE id = ?").get(snapshotId);
+  if (!row?.payload_json) return {};
+  let payload;
+  try {
+    payload = JSON.parse(row.payload_json);
+  } catch {
+    return {};
+  }
+  if (payload && typeof payload === "object") {
+    delete payload.listing_card;
+  }
+  return flattenForDiff(payload);
 }
 
 // Upstream tokenized fields rotate between renders and would otherwise create
