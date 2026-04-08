@@ -375,6 +375,118 @@ td.num, th.num {
   height: 38px;
   font-size: 14px;
 }
+.filters .field-seller {
+  position: relative;
+}
+.filters .seller-combo {
+  position: relative;
+}
+.filters .seller-combo input {
+  padding-right: 40px;
+}
+.filters .seller-combo-toggle {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  cursor: pointer;
+}
+.filters .seller-combo-toggle:hover {
+  opacity: 1;
+  background: var(--hover);
+}
+.filters .seller-combo-toggle::before {
+  content: "";
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 0 auto;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%239ca3af' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><polyline points='2 4 6 8 10 4'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px;
+  transition: transform 0.15s ease;
+}
+.filters .seller-combo.is-open .seller-combo-toggle::before {
+  transform: rotate(180deg);
+}
+.filters .seller-combo-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.filters .seller-combo-menu[hidden] {
+  display: none;
+}
+.filters .seller-combo-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.filters .seller-combo-option:hover,
+.filters .seller-combo-option.is-active {
+  opacity: 1;
+  background: var(--hover);
+}
+.filters .seller-combo-option-text {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+.filters .seller-combo-option-name,
+.filters .seller-combo-option-meta {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filters .seller-combo-option-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+.filters .seller-combo-option-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+.filters .seller-combo-option-count {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.filters .seller-combo-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
 
 /* Range pair: two narrow inputs separated by an en-dash. Inputs share the
    same border style as regular ones so the field reads as one unit. */

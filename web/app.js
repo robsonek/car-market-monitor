@@ -737,8 +737,31 @@ function viewListings(view, params) {
   const sellerOptions = sellers.map((seller) => ({
     ...seller,
     label: formatSellerLabel(seller),
+    locationLabel: formatSellerLocation(seller),
+    searchText: [
+      seller.seller_name,
+      seller.seller_location_city,
+      seller.seller_location_region,
+    ].filter(Boolean).join(" ").toLowerCase(),
   }));
-  const sellerOptionByLabel = new Map(sellerOptions.map((seller) => [seller.label.toLowerCase(), seller]));
+  const sellerOptionGroups = Array.from(
+    sellerOptions.reduce((map, seller) => {
+      const key = seller.label.toLowerCase();
+      const existing = map.get(key);
+      if (existing) {
+        existing.listing_count += Number(seller.listing_count || 0);
+        existing.seller_uuids.push(seller.seller_uuid);
+      } else {
+        map.set(key, {
+          ...seller,
+          listing_count: Number(seller.listing_count || 0),
+          seller_uuids: seller.seller_uuid ? [seller.seller_uuid] : [],
+        });
+      }
+      return map;
+    }, new Map()).values(),
+  );
+  const sellerOptionByLabel = new Map(sellerOptionGroups.map((seller) => [seller.label.toLowerCase(), seller]));
   const sellerFilterParams = sellerScope
     ? { sellerUuid: sellerScope.seller_uuid }
     : params.sellerQuery
@@ -754,9 +777,159 @@ function viewListings(view, params) {
 
   // Filters
   const filters = el("form", { class: "filters", onsubmit: (e) => { e.preventDefault(); applyFilters(); } });
-  const sellerListId = "seller-options";
   const sellerInput = input("text", "seller", sellerInputValue, "np. Porsche Centrum Warszawa");
-  sellerInput.setAttribute("list", sellerListId);
+  sellerInput.setAttribute("autocomplete", "off");
+  sellerInput.setAttribute("spellcheck", "false");
+  const sellerMenu = el("div", { class: "seller-combo-menu", hidden: "" });
+  const sellerToggle = el("button", {
+    type: "button",
+    class: "seller-combo-toggle",
+    tabindex: "-1",
+    "aria-label": "Pokaż listę sprzedawców",
+    onmousedown: (e) => e.preventDefault(),
+    onclick: () => {
+      if (sellerMenu.hidden) {
+        openSellerMenu();
+        sellerInput.focus();
+      } else {
+        closeSellerMenu();
+      }
+    },
+  });
+  const sellerCombo = el("div", { class: "seller-combo" }, sellerInput, sellerToggle, sellerMenu);
+  let sellerVisibleOptions = [];
+  let sellerActiveIndex = -1;
+  let sellerHasKeyboardSelection = false;
+
+  function getSellerMenuOptions() {
+    const terms = sellerInput.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const limit = terms.length > 0 ? 12 : 8;
+    return sellerOptionGroups
+      .map((seller) => {
+        if (terms.length === 0) return { seller, score: 0 };
+        let score = 0;
+        const nameText = (seller.seller_name || "").toLowerCase();
+        for (const term of terms) {
+          const idx = seller.searchText.indexOf(term);
+          if (idx === -1) return null;
+          const nameIdx = nameText.indexOf(term);
+          score += nameIdx === -1 ? idx + 100 : nameIdx;
+        }
+        return { seller, score };
+      })
+      .filter(Boolean)
+      .sort((a, b) =>
+        a.score - b.score ||
+        Number(b.seller.listing_count || 0) - Number(a.seller.listing_count || 0) ||
+        a.seller.label.localeCompare(b.seller.label, "pl"),
+      )
+      .slice(0, limit)
+      .map((row) => row.seller);
+  }
+
+  function scrollActiveSellerOptionIntoView() {
+    const active = sellerMenu.querySelector(`[data-seller-index="${sellerActiveIndex}"]`);
+    if (active) active.scrollIntoView({ block: "nearest" });
+  }
+
+  function renderSellerMenu() {
+    sellerVisibleOptions = getSellerMenuOptions();
+    sellerMenu.innerHTML = "";
+    sellerCombo.classList.toggle("is-open", !sellerMenu.hidden);
+
+    if (sellerVisibleOptions.length === 0) {
+      sellerActiveIndex = -1;
+      sellerMenu.appendChild(el("div", { class: "seller-combo-empty" }, "Brak pasujących sprzedawców."));
+      return;
+    }
+
+    if (sellerActiveIndex < 0 || sellerActiveIndex >= sellerVisibleOptions.length) {
+      sellerActiveIndex = 0;
+    }
+
+    sellerVisibleOptions.forEach((seller, index) => {
+      sellerMenu.appendChild(
+        el(
+          "button",
+          {
+            type: "button",
+            class: `seller-combo-option${index === sellerActiveIndex ? " is-active" : ""}`,
+            "data-seller-index": String(index),
+            onmousedown: (e) => e.preventDefault(),
+            onclick: () => {
+              sellerInput.value = seller.label;
+              closeSellerMenu();
+              sellerInput.focus();
+            },
+          },
+          el(
+            "span",
+            { class: "seller-combo-option-text" },
+            el("span", { class: "seller-combo-option-name" }, seller.seller_name || seller.label),
+            seller.locationLabel && seller.seller_name
+              ? el("span", { class: "seller-combo-option-meta" }, seller.locationLabel)
+              : null,
+          ),
+          el("span", { class: "seller-combo-option-count", title: `${seller.listing_count} ofert` }, seller.listing_count),
+        ),
+      );
+    });
+  }
+
+  function openSellerMenu() {
+    sellerMenu.hidden = false;
+    sellerHasKeyboardSelection = false;
+    renderSellerMenu();
+  }
+
+  function closeSellerMenu() {
+    sellerMenu.hidden = true;
+    sellerMenu.innerHTML = "";
+    sellerActiveIndex = -1;
+    sellerHasKeyboardSelection = false;
+    sellerCombo.classList.remove("is-open");
+  }
+
+  sellerInput.addEventListener("focus", openSellerMenu);
+  sellerInput.addEventListener("click", openSellerMenu);
+  sellerInput.addEventListener("input", openSellerMenu);
+  sellerInput.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (sellerMenu.hidden) openSellerMenu();
+      else if (sellerVisibleOptions.length > 0) {
+        sellerHasKeyboardSelection = true;
+        sellerActiveIndex = Math.min(sellerActiveIndex + 1, sellerVisibleOptions.length - 1);
+        renderSellerMenu();
+        scrollActiveSellerOptionIntoView();
+      }
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (sellerMenu.hidden) openSellerMenu();
+      else if (sellerVisibleOptions.length > 0) {
+        sellerHasKeyboardSelection = true;
+        sellerActiveIndex = Math.max(sellerActiveIndex - 1, 0);
+        renderSellerMenu();
+        scrollActiveSellerOptionIntoView();
+      }
+      return;
+    }
+    if (e.key === "Enter" && sellerHasKeyboardSelection && !sellerMenu.hidden && sellerVisibleOptions[sellerActiveIndex]) {
+      e.preventDefault();
+      sellerInput.value = sellerVisibleOptions[sellerActiveIndex].label;
+      closeSellerMenu();
+      return;
+    }
+    if (e.key === "Escape") closeSellerMenu();
+  });
+  sellerInput.addEventListener("blur", () => {
+    window.requestAnimationFrame(() => {
+      if (!sellerCombo.contains(document.activeElement)) closeSellerMenu();
+    });
+  });
+
   const sourceSelect = el(
     "select",
     { name: "source" },
@@ -841,18 +1014,7 @@ function viewListings(view, params) {
       "div",
       { class: "filters-featured" },
       field("Szukaj w tytule i opisie", input("text", "q", params.q, "np. ceramic brakes, BOSE, ppf..."), "field-search"),
-      field(
-        "Sprzedawca",
-        [
-          sellerInput,
-          el(
-            "datalist",
-            { id: sellerListId },
-            ...sellerOptions.map((seller) => el("option", { value: seller.label })),
-          ),
-        ],
-        "field-seller",
-      ),
+      field("Sprzedawca", sellerCombo, "field-seller"),
     ),
     field("Źródło", sourceSelect),
     field("Status", activeSelect),
@@ -893,8 +1055,8 @@ function viewListings(view, params) {
     const sellerValue = sellerInput.value.trim();
     if (sellerValue) {
       const exactSeller = sellerOptionByLabel.get(sellerValue.toLowerCase());
-      if (exactSeller?.seller_uuid) next.sellerUuid = exactSeller.seller_uuid;
-      else next.sellerQuery = sellerValue;
+      if (exactSeller?.seller_uuids?.length === 1) next.sellerUuid = exactSeller.seller_uuids[0];
+      else next.sellerQuery = exactSeller?.label || sellerValue;
     }
     navigate("#/listings", next);
   }
@@ -1640,11 +1802,18 @@ function truncate(text, n) {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
+function formatSellerLocation(listing) {
+  const parts = [];
+  if (listing?.seller_location_city) parts.push(listing.seller_location_city);
+  if (listing?.seller_location_region) parts.push(listing.seller_location_region);
+  return parts.join(" · ");
+}
+
 function formatSellerLabel(listing) {
   const parts = [];
   if (listing?.seller_name) parts.push(listing.seller_name);
-  if (listing?.seller_location_city) parts.push(listing.seller_location_city);
-  if (listing?.seller_location_region) parts.push(listing.seller_location_region);
+  const location = formatSellerLocation(listing);
+  if (location) parts.push(location);
   return parts.join(" · ") || listing?.seller_uuid || "";
 }
 
