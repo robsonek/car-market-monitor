@@ -340,7 +340,10 @@ async function normalizeDetail(advert, card) {
       labels: advert.price?.labels || [],
       is_under_budget: advert.price?.isUnderBudget ?? null,
     },
-    description_html: advert.description || "",
+    // description_html nie trafia już do payloadu — był w NOISY_FIELD_PREFIXES,
+    // więc i tak filtrowany z hasha/diffów, a zajmował ~2.5 MB w bazie. Od
+    // tekstu trzyma się description_text (po stripHtml), i to z niego jest
+    // liczony diff.
     description_text: descriptionText,
     main_features: advert.mainFeatures || [],
     ad_features: (advert.adFeatures || []).slice().sort(),
@@ -389,12 +392,26 @@ async function normalizeDetail(advert, card) {
     value_added_services: normalizeValueAddedServices(advert.valueAddedServices || []),
   });
 
-  // IMPORTANT: keep `listing_card` OUT of the diffable field map. page_number and
-  // page_position fluctuate every run, so feeding them into flattenForDiff would
-  // poison field_map with phantom changes on every snapshot. They live only in
-  // the persisted payload for debugging the discovery context.
+  // `payload` = to co zapisujemy do kolumny payload_json. Różni się od
+  // `snapshotPayload` (= input do field_mapa/hasha) w dwóch miejscach:
+  //
+  //  - DODAJEMY listing_card: page_number/page_position/short_description są
+  //    potrzebne do kontekstu discovery, ale fluktują między runami, więc NIE
+  //    mogą wejść do field_mapa (poison: phantom diffy na każdym snapshocie).
+  //    loadFieldMap() odcina listing_card przed flattenem.
+  //
+  //  - USUWAMY description_text: trzymamy go już w kolumnie
+  //    listing_snapshots.description_text (używanej przez search w dashboardzie),
+  //    więc kopia w payload_json to czysta duplikacja ~2 MB. loadFieldMap()
+  //    wstrzykuje go z powrotem z kolumny przed flattenem, więc field_map i
+  //    hash pozostają identyczne jak przed zmianą.
+  //
+  // field_map liczony jest z pełnego snapshotPayload (z description_text),
+  // żeby zachować stabilność hasha dla wszystkich historycznych listingów.
+  const storedPayload = { ...snapshotPayload };
+  delete storedPayload.description_text;
   const payload = stableValue({
-    ...snapshotPayload,
+    ...storedPayload,
     listing_card: {
       page_number: card.page_number,
       page_position: card.page_position,

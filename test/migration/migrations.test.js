@@ -52,8 +52,8 @@ test("openDatabase on a fresh file applies all migrations and bumps user_version
   const db = openDatabase(dbPath);
   try {
     const version = db.pragma("user_version", { simple: true });
-    // 5 .sql files in /migrations → user_version = 5
-    assert.equal(version, 5);
+    // 6 .sql files in /migrations → user_version = 6
+    assert.equal(version, 6);
 
     // Core tables from 0001
     const tables = db
@@ -175,7 +175,7 @@ test("upgrading from user_version=1 (only 0001 applied) replays 0002 + 0003 + 00
   // Simulate an "old" db: bare 0001 schema with user_version=1. We do this by
   // directly executing the 0001 SQL via better-sqlite3 (bypassing
   // applyMigrations) and pinning user_version to 1. Then openDatabase() on
-  // the same path must fast-forward to user_version=5 by running 0002…0005.
+  // the same path must fast-forward to user_version=6 by running 0002…0006.
   const seed = new Database(dbPath);
   seed.pragma("journal_mode = WAL");
   applyMigrationFiles(seed, ["0001_init.sql"]);
@@ -190,7 +190,7 @@ test("upgrading from user_version=1 (only 0001 applied) replays 0002 + 0003 + 00
   // Now open via the production path. Migrations 0002 and 0003 must run.
   const db = openDatabase(dbPath);
   try {
-    assert.equal(db.pragma("user_version", { simple: true }), 5);
+    assert.equal(db.pragma("user_version", { simple: true }), 6);
     const colsAfter = listColumns(db, "listings");
     assert.ok(colsAfter.includes("damaged"), "0002 migration did not apply on upgrade");
     assert.ok(colsAfter.includes("vin"), "0003 migration did not apply on upgrade");
@@ -233,7 +233,7 @@ test("upgrading from user_version=3 backfills legacy scrape_runs into batches", 
 
   const db = openDatabase(dbPath);
   try {
-    assert.equal(db.pragma("user_version", { simple: true }), 5);
+    assert.equal(db.pragma("user_version", { simple: true }), 6);
     const runs = db
       .prepare("SELECT id, batch_id FROM scrape_runs ORDER BY started_at ASC")
       .all();

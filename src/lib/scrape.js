@@ -758,13 +758,21 @@ function insertChange(db, change) {
 // (JSON.parse + flatten), a uruchamia się tylko dla poprzedniego snapshotu
 // przy wykrywaniu zmian.
 //
-// WAŻNE: listing_card MUSI zostać wycięty z payloadu przed flattenem.
-// marketplace-source.js celowo trzyma listing_card tylko w payload, ale NIE w
-// field_map, bo page_number/page_position rotują co run i generowałyby
-// phantom diffy. Tu utrzymujemy ten sam kontrakt.
+// Kontrakt payload_json ↔ field_map (patrz też marketplace-source.js):
+//
+//  - listing_card jest w payload_json, ale NIE w field_mapie (page_number/
+//    page_position rotują co run — phantom diffy). Odcinamy przed flattenem.
+//
+//  - description_text jest w field_mapie, ale NIE w payload_json (trzymany
+//    oddzielnie w kolumnie listing_snapshots.description_text, żeby nie
+//    duplikować ~2 MB). Wstrzykujemy z kolumny przed flattenem. Stare
+//    snapshoty sprzed backfillu nadal mogą mieć description_text w payloadzie
+//    — w takim przypadku iniekcja jest no-opem, bo wartość jest identyczna.
 function loadFieldMap(db, snapshotId) {
   if (!snapshotId) return {};
-  const row = db.prepare("SELECT payload_json FROM listing_snapshots WHERE id = ?").get(snapshotId);
+  const row = db
+    .prepare("SELECT payload_json, description_text FROM listing_snapshots WHERE id = ?")
+    .get(snapshotId);
   if (!row?.payload_json) return {};
   let payload;
   try {
@@ -774,6 +782,14 @@ function loadFieldMap(db, snapshotId) {
   }
   if (payload && typeof payload === "object") {
     delete payload.listing_card;
+    // Wstrzyknij description_text z kolumny. Dla nowych snapshotów (po
+    // migration 0006) payload.description_text jest undefined, więc to
+    // przywraca je dla flattenu. Dla starych snapshotów wartość w payloadzie
+    // jest identyczna z kolumną (obie z tego samego descriptionText w
+    // normalizeDetail), więc nadpisanie jest bezpieczne.
+    if (row.description_text != null) {
+      payload.description_text = row.description_text;
+    }
   }
   return flattenForDiff(payload);
 }
