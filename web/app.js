@@ -833,22 +833,26 @@ function viewListings(view, params) {
   const bodyTypeSelect = dynamicEnumSelect("bodyType", "body_type");
   const gearboxSelect = dynamicEnumSelect("gearbox", "gearbox");
 
-  // Layout: flat children of .filters CSS grid. Search field gets the
-  // .field-search modifier to span the full row (1 / -1) and is placed
-  // FIRST so it sits at the top of the form. Actions get the same full-span
-  // treatment + a top divider via CSS.
+  // Layout: top row is a dedicated 2-col grid for title/description search
+  // and seller search. The rest of the controls stay as flat children of the
+  // main .filters grid, with actions spanning the full row at the bottom.
   filters.append(
-    field("Szukaj w tytule i opisie", input("text", "q", params.q, "np. ceramic brakes, BOSE, ppf..."), "field-search"),
-    field(
-      "Sprzedawca",
-      [
-        sellerInput,
-        el(
-          "datalist",
-          { id: sellerListId },
-          ...sellerOptions.map((seller) => el("option", { value: seller.label }, `${seller.listing_count}`)),
-        ),
-      ],
+    el(
+      "div",
+      { class: "filters-featured" },
+      field("Szukaj w tytule i opisie", input("text", "q", params.q, "np. ceramic brakes, BOSE, ppf..."), "field-search"),
+      field(
+        "Sprzedawca",
+        [
+          sellerInput,
+          el(
+            "datalist",
+            { id: sellerListId },
+            ...sellerOptions.map((seller) => el("option", { value: seller.label }, `${seller.listing_count}`)),
+          ),
+        ],
+        "field-seller",
+      ),
     ),
     field("Źródło", sourceSelect),
     field("Status", activeSelect),

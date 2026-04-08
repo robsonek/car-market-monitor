@@ -358,11 +358,23 @@ td.num, th.num {
   cursor: pointer;
 }
 
-/* Search field spans the entire grid row and gets a slightly larger font
-   to signal it's the primary input. Modifier on .field rather than wrapper
-   so we don't have to restructure viewChanges' filter form. */
-.filters .field-search { grid-column: 1 / -1; }
-.filters .field-search input { height: 38px; font-size: 14px; }
+/* Featured top row for the two primary entry points: free-text listing search
+   and seller lookup. They share the row 50/50 on desktop and collapse to one
+   column on phones. */
+.filters .filters-featured {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 10px;
+}
+.filters > .field-search {
+  grid-column: 1 / -1;
+}
+.filters .field-search input,
+.filters .field-seller input {
+  height: 38px;
+  font-size: 14px;
+}
 
 /* Range pair: two narrow inputs separated by an en-dash. Inputs share the
    same border style as regular ones so the field reads as one unit. */
@@ -740,9 +752,10 @@ button.secondary {
 .price-rise { color: var(--red); font-weight: 600; }
 
 @media (max-width: 720px) {
-  /* Force single column on phones; .field-search and .actions still get
-     `1 / -1` which now means the only column, so they fit naturally. */
+  /* Force single column on phones; featured search row also collapses to one
+     column so title search and seller search stack naturally. */
   .filters { grid-template-columns: 1fr; }
+  .filters .filters-featured { grid-template-columns: 1fr; }
 
   /* Topbar: keep a horizontal row with wrapping instead of stacking into
      a column. Stacking doubled header height and pushed content down;
