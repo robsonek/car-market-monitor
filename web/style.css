@@ -1,0 +1,835 @@
+:root {
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --border: #e2e5eb;
+  --text: #1a1d23;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --accent-bg: #eff6ff;
+  --green: #16a34a;
+  --green-bg: #dcfce7;
+  --yellow: #ca8a04;
+  --yellow-bg: #fef9c3;
+  --red: #dc2626;
+  --red-bg: #fee2e2;
+  --hover: #f1f5f9;
+  --input-bg: #ffffff;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1419;
+  --panel: #1a1f29;
+  --border: #2d3441;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #60a5fa;
+  --accent-bg: #1e3a5f;
+  --green: #4ade80;
+  --green-bg: #14532d;
+  --yellow: #facc15;
+  --yellow-bg: #422006;
+  --red: #f87171;
+  --red-bg: #450a0a;
+  --hover: #232936;
+  --input-bg: #0f1419;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbar nav { display: flex; gap: 18px; }
+.topbar nav a {
+  color: var(--text);
+  font-weight: 500;
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+}
+.topbar nav a.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.status {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.theme-toggle {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.theme-toggle:hover {
+  background: var(--hover);
+}
+
+main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+main.view-wide {
+  max-width: 1680px;
+}
+
+h1 { font-size: 22px; margin: 0 0 16px; }
+h2 { font-size: 16px; margin: 24px 0 10px; }
+h3 { font-size: 14px; margin: 16px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.loading, .empty {
+  color: var(--muted);
+  padding: 20px;
+  text-align: center;
+}
+
+.error {
+  background: var(--red-bg);
+  color: var(--red);
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--red);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.card .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.card .value {
+  font-size: 22px;
+  font-weight: 600;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  /* overflow-x auto umożliwia horyzontalny scroll wide'owych tabel na
+     mobile (Listings ma 10 kolumn i bez tego były przycinane). overflow-y
+     hidden zachowuje clipping border-radius. */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th, td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  background: var(--bg);
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+}
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+  padding-right: 28px;
+}
+th.sortable:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+th.sorted {
+  color: var(--accent);
+}
+th.sortable::after {
+  content: "▲";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 10px;
+  text-align: center;
+  transform: translateY(-50%);
+  color: transparent;
+}
+th.sortable[data-sort-dir="desc"]::after {
+  content: "▼";
+}
+th.sortable.sorted::after {
+  color: currentColor;
+}
+
+tbody tr { transition: background 0.1s; }
+tbody tr:hover { background: var(--hover); cursor: pointer; }
+tbody tr.no-click { cursor: default; }
+tbody tr.no-click:hover { background: transparent; }
+
+td.num, th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.badge-success { color: var(--green); background: var(--green-bg); }
+.badge-partial { color: var(--yellow); background: var(--yellow-bg); }
+.badge-failed { color: var(--red); background: var(--red-bg); }
+.badge-active { color: var(--green); background: var(--green-bg); }
+.badge-inactive { color: var(--muted); background: var(--bg); border: 1px solid var(--border); }
+.badge-running { color: var(--accent); background: var(--accent-bg); }
+
+.filters {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  /* Single CSS grid with auto-fill columns. .field-search and .actions get
+     `grid-column: 1 / -1` modifiers below to span the full row, so the form
+     reads as: [search row] / [filter grid rows] / [actions row] without
+     needing separate flex/grid wrappers in JS. align-items: end + uniform
+     control heights keep all inputs on the same baseline. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px 10px;
+  align-items: end;
+}
+
+.filters .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.filters label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+/* Unified control styling: identical 34px height, same border, same padding,
+   same focus ring. The previous design had selects rendered with native
+   chrome (different border, different height, OS-specific arrows) sitting
+   next to text inputs which made the row look ragged.
+   Excluding checkbox/radio because they need their natural size — the
+   100%-width rule otherwise stretches a checkbox to fill the entire grid
+   cell. */
+.filters input:not([type="checkbox"]):not([type="radio"]),
+.filters select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--input-bg);
+  color: var(--text);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.filters input:not([type="checkbox"]):not([type="radio"]):hover,
+.filters select:hover {
+  border-color: var(--accent);
+}
+.filters input:not([type="checkbox"]):not([type="radio"]):focus,
+.filters select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+/* Checkbox-field: a labelled checkbox inside the filter grid. The .field
+   wrapper still provides the small uppercase label on top, but the control
+   itself is a horizontal `[checkbox] inline-label` group on the second row,
+   pinned to the same 34px content height as other fields so the row stays
+   aligned. */
+.filters .checkbox-field .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+}
+.filters .checkbox-field input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.filters .checkbox-field .checkbox-text {
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: normal;
+}
+
+/* Custom select chevron: kill native appearance, paint our own SVG arrow.
+   Stroke uses a fixed muted gray that reads OK in both themes (the inputs'
+   --input-bg fills the rest of the chrome). */
+.filters select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%239ca3af' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><polyline points='2 4 6 8 10 4'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+/* Search field spans the entire grid row and gets a slightly larger font
+   to signal it's the primary input. Modifier on .field rather than wrapper
+   so we don't have to restructure viewChanges' filter form. */
+.filters .field-search { grid-column: 1 / -1; }
+.filters .field-search input { height: 38px; font-size: 14px; }
+
+/* Range pair: two narrow inputs separated by an en-dash. Inputs share the
+   same border style as regular ones so the field reads as one unit. */
+.filters .range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.filters .range-inputs input {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  /* slightly tighter than full-width inputs since we have two side by side */
+  padding: 0 6px;
+}
+.filters .range-inputs .range-sep {
+  color: var(--muted);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* Hide native number-input spinners — chunky, ~20px wide each, redundant
+   when we already show Min/Max placeholders. */
+.filters input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.filters input[type="number"]::-webkit-outer-spin-button,
+.filters input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.filters .actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+button {
+  padding: 7px 14px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: white;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover { opacity: 0.9; }
+button.secondary {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* Kontrolki paginacji pod tabelą listings. Układ: [prev] [indicator] [next]
+   z indykatorem wycentrowanym przez margin auto. Disabled-state używa
+   natywnego atrybutu button[disabled] — przyciemniamy i blokujemy hover. */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  padding: 12px 0;
+  flex-wrap: wrap;
+}
+.pager button[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pager button[disabled]:hover {
+  opacity: 0.4;
+}
+
+.sparkline {
+  display: block;
+}
+
+.timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.timeline li {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 16px;
+}
+.timeline li:last-child { border-bottom: none; }
+.timeline .when { color: var(--muted); font-variant-numeric: tabular-nums; }
+.timeline .field { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--accent); }
+.timeline .change-old { color: var(--red); text-decoration: line-through; word-break: break-word; }
+.timeline .change-new { color: var(--green); word-break: break-word; }
+/* When the change-old/new cells contain a structured diff widget, turn off
+   the blanket strike/color so only the actual changed fragments/cards carry
+   emphasis. */
+.timeline .change-old:has(.text-diff),
+.timeline .change-new:has(.text-diff),
+.timeline .change-old:has(.service-diff),
+.timeline .change-new:has(.service-diff) {
+  color: inherit;
+  text-decoration: none;
+}
+.timeline .diff-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.timeline .diff-arrow { color: var(--muted); font-size: 13px; padding-top: 2px; }
+
+/* Seller description panel. description_text zachowuje \n-y po stripHtml,
+   więc pre-wrap jest jedyną rzeczą której potrzebujemy żeby podział akapitów
+   nie zgubił się. word-break: break-word żeby długie URL-e / VIN-y bez spacji
+   nie rozpychały panelu na mobile. */
+.description-body {
+  padding: 14px 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+/* Word-level inline diff. Common parts dim, removed/added highlighted. */
+.text-diff {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.55;
+  display: inline;
+}
+.text-diff--compact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.text-diff-line {
+  min-height: 1.55em;
+}
+.text-diff-ellipsis {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+}
+.diff-context { color: var(--muted); }
+.diff-removed {
+  background: var(--red-bg);
+  color: var(--red);
+  text-decoration: line-through;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+.diff-added {
+  background: var(--green-bg);
+  color: var(--green);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* Image diff: thumbnail grid for images.urls field changes. Replaces the
+   uselessly long JSON string with actual visible thumbnails bordered in
+   red (removed) or green (added). Clicking any thumb opens the full-res
+   marketplace CDN URL in a new tab. */
+.image-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.image-diff-label {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  width: fit-content;
+}
+.image-diff-label--old {
+  background: var(--red-bg);
+  color: var(--red);
+}
+.image-diff-label--new {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.image-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 420px;
+}
+.image-thumb-link {
+  display: block;
+  line-height: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  transition: transform 0.15s;
+}
+.image-thumb-link:hover {
+  transform: scale(1.08);
+  z-index: 1;
+  position: relative;
+}
+.image-thumb {
+  width: 72px;
+  height: 54px;
+  object-fit: cover;
+  display: block;
+  border: 2px solid;
+  border-radius: 4px;
+  background: var(--bg);
+}
+.image-thumb--old {
+  border-color: var(--red);
+  opacity: 0.7;
+}
+.image-thumb--new {
+  border-color: var(--green);
+}
+.image-thumb--old:hover { opacity: 1; }
+
+.service-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.service-diff--noop {
+  display: inline-flex;
+}
+.service-diff-label {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  width: fit-content;
+}
+.service-diff-label--old {
+  background: var(--red-bg);
+  color: var(--red);
+}
+.service-diff-label--new {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.service-diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.service-diff-item {
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--panel);
+}
+.service-diff-item--old {
+  border-left-color: var(--red);
+}
+.service-diff-item--new {
+  border-left-color: var(--green);
+}
+.service-diff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.service-diff-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.service-diff-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.service-diff-badge--old {
+  background: var(--red-bg);
+  color: var(--red);
+}
+.service-diff-badge--new {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.service-diff-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+/* Broken thumbs (expired JWT URLs, CDN 403s etc.) — show the alt space
+   as a subtle placeholder rather than the default ugly broken-image icon. */
+.image-thumb[alt]:-moz-broken,
+.image-thumb:not([src]),
+.image-thumb[src=""] {
+  background: var(--input-bg);
+}
+
+/* Listing detail gallery: responsive grid of 4:3 thumbnails. Clicking any
+   tile opens the full-res marketplace CDN URL in a new tab. No lightbox yet —
+   that would need a modal with focus trap, keyboard nav, backdrop close,
+   etc., which is a separate chunk of work. */
+.listing-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  padding: 14px 16px;
+}
+.gallery-item {
+  display: block;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.gallery-item:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-color: var(--accent);
+}
+.gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.detail-header .meta {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.muted { color: var(--muted); }
+.tabular { font-variant-numeric: tabular-nums; }
+
+.row-link {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.price-drop { color: var(--green); font-weight: 600; }
+.price-rise { color: var(--red); font-weight: 600; }
+
+.payload-toggle {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.payload-json {
+  display: none;
+  background: #1a1d23;
+  color: #e2e8f0;
+  padding: 12px;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.payload-json.open { display: block; }
+
+@media (max-width: 720px) {
+  /* Force single column on phones; .field-search and .actions still get
+     `1 / -1` which now means the only column, so they fit naturally. */
+  .filters { grid-template-columns: 1fr; }
+
+  /* Topbar: keep a horizontal row with wrapping instead of stacking into
+     a column. Stacking doubled header height and pushed content down;
+     wrap + smaller gap fits nav + status + toggle on one line on most
+     phones and gracefully wraps the right-side controls underneath on
+     very narrow screens. */
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .topbar nav { gap: 14px; }
+  .topbar-right { gap: 10px; }
+  /* Ukrywamy "db 33 MB · last run 18m temu" na mobile — nie mieści się
+     w wierszu z nawigacją i theme toggle'em, a informacja jest
+     diagnostyczna (rzadko potrzebna w trakcie przeglądania). */
+  .topbar #db-status { display: none; }
+
+  /* Tighter gutter on phones — 20px symmetric padding eats 40px of a
+     375px screen. */
+  main { padding: 12px; }
+
+  h1 { font-size: 20px; }
+
+  /* Tables: smaller font + tighter padding, and — crucially — nowrap so
+     columns keep their natural width and the .panel wrapper scrolls
+     horizontally instead of collapsing every cell into a tall stack of
+     wrapped words. */
+  table { font-size: 12px; }
+  th, td { padding: 6px 8px; white-space: nowrap; }
+  /* Timeline's change cells live inside tables too in some views; force
+     wrap back on for long text fields that we explicitly want to break.
+     The only tds we don't want to nowrap are the ones containing diffs
+     (text-diff / image-diff / diff-row), which need to wrap/stack. */
+  td:has(.text-diff),
+  td:has(.image-diff),
+  td:has(.service-diff),
+  td:has(.diff-row) { white-space: normal; }
+
+  /* Timeline: stack the "when" label above the change content instead
+     of reserving a fixed 160px side column — on a 350px screen that
+     leaves barely 170px for the diff itself. Also stack the diff-row's
+     old/new pair vertically so each side gets full width. */
+  .timeline li {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 10px 12px;
+  }
+  .timeline .diff-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .timeline .diff-arrow { display: none; }
+
+  /* Listing detail gallery: smaller tile minimum so two columns fit on
+     a 350px screen (180px was forcing single-column). */
+  .listing-gallery {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    padding: 10px 12px;
+    gap: 6px;
+  }
+
+  /* Cards: drop the 220px minimum so two metric cards can sit side by
+     side on phones. */
+  .cards { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .card { padding: 10px 12px; }
+  .card .value { font-size: 18px; }
+}

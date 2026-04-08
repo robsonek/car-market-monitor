@@ -1,0 +1,67 @@
+name: scrape
+
+on:
+  schedule:
+    # Co 1h, w UTC. Publiczne repo → GitHub Actions bez limitu minut.
+    # Cron GitHub bywa opóźniony 5-20 min w godzinach szczytowych, więc
+    # w praktyce faktyczny interwał to ~60-80 min. Poprzednio było co 8h.
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      source_id:
+        description: "Optional: scrape only this source id"
+        required: false
+        type: string
+
+# Tylko jeden run na raz - inaczej dwa procesy mogą równolegle commitować
+# nowy stan db/car-market-monitor.sqlite i wpadniemy w merge conflict.
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Pełny clone żeby move/commit działały bez problemów z shallow.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          # Aktualny LTS. Pinujemy tylko major - setup-node sam wybierze
+          # najnowszego patcha 24.x. checkout/setup-node v6 same lecą na
+          # Node 24 wewnętrznie, więc nie potrzeba już
+          # FORCE_JAVASCRIPT_ACTIONS_TO_NODE24.
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run scrape
+        env:
+          CAR_MARKET_MONITOR_TRIGGER: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'scheduled' }}
+        run: |
+          if [ -n "${{ inputs.source_id }}" ]; then
+            node bin/run.js --source "${{ inputs.source_id }}"
+          else
+            node bin/run.js
+          fi
+
+      - name: Commit updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/car-market-monitor.sqlite db/car-market-monitor.sqlite.version.json
+          if git diff --cached --quiet; then
+            echo "no db changes to commit"
+            exit 0
+          fi
+          git commit -m "data: scrape run $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
