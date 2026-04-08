@@ -715,6 +715,14 @@ function viewListings(view, params) {
   view.appendChild(el("h1", {}, "Listings"));
 
   const sources = query(state.db, "SELECT id, name FROM sources ORDER BY created_at ASC");
+  const sellers = query(
+    state.db,
+    `SELECT seller_uuid, seller_name, seller_location_city, seller_location_region, COUNT(*) AS listing_count
+     FROM listings
+     WHERE seller_uuid IS NOT NULL
+     GROUP BY seller_uuid, seller_name, seller_location_city, seller_location_region
+     ORDER BY lower(COALESCE(seller_name, '')), lower(COALESCE(seller_location_city, '')), lower(COALESCE(seller_location_region, ''))`,
+  );
   const sellerScope = params.sellerUuid
     ? query(
       state.db,
@@ -726,14 +734,29 @@ function viewListings(view, params) {
       [params.sellerUuid],
     )[0] || { seller_uuid: params.sellerUuid }
     : null;
-  const listingsBaseParams = sellerScope ? { sellerUuid: sellerScope.seller_uuid } : {};
+  const sellerOptions = sellers.map((seller) => ({
+    ...seller,
+    label: formatSellerLabel(seller),
+  }));
+  const sellerOptionByLabel = new Map(sellerOptions.map((seller) => [seller.label.toLowerCase(), seller]));
+  const sellerFilterParams = sellerScope
+    ? { sellerUuid: sellerScope.seller_uuid }
+    : params.sellerQuery
+      ? { sellerQuery: params.sellerQuery }
+      : {};
+  const sellerInputValue = sellerScope ? formatSellerLabel(sellerScope) : (params.sellerQuery || "");
 
   if (sellerScope) {
     view.appendChild(el("p", { class: "muted" }, `Widok sprzedawcy: ${formatSellerLabel(sellerScope)}`));
+  } else if (params.sellerQuery) {
+    view.appendChild(el("p", { class: "muted" }, `Wyszukiwanie sprzedawcy: ${params.sellerQuery}`));
   }
 
   // Filters
   const filters = el("form", { class: "filters", onsubmit: (e) => { e.preventDefault(); applyFilters(); } });
+  const sellerListId = "seller-options";
+  const sellerInput = input("text", "seller", sellerInputValue, "np. Porsche Centrum Warszawa");
+  sellerInput.setAttribute("list", sellerListId);
   const sourceSelect = el(
     "select",
     { name: "source" },
@@ -815,8 +838,18 @@ function viewListings(view, params) {
   // FIRST so it sits at the top of the form. Actions get the same full-span
   // treatment + a top divider via CSS.
   filters.append(
-    sellerScope ? input("hidden", "sellerUuid", sellerScope.seller_uuid) : null,
     field("Szukaj w tytule i opisie", input("text", "q", params.q, "np. ceramic brakes, BOSE, ppf..."), "field-search"),
+    field(
+      "Sprzedawca",
+      [
+        sellerInput,
+        el(
+          "datalist",
+          { id: sellerListId },
+          ...sellerOptions.map((seller) => el("option", { value: seller.label }, `${seller.listing_count}`)),
+        ),
+      ],
+    ),
     field("Źródło", sourceSelect),
     field("Status", activeSelect),
     field("Stan", newUsedSelect),
@@ -833,12 +866,13 @@ function viewListings(view, params) {
     field("Kraj pochodzenia", countrySelect),
     el("div", { class: "actions" },
       sellerScope
+        || params.sellerQuery
         ? el("button", { type: "button", class: "secondary", onclick: () => navigate("#/listings") }, "Wszyscy sprzedawcy")
         : null,
       el(
         "button",
-        { type: "button", class: "secondary", onclick: () => navigate("#/listings", listingsBaseParams) },
-        sellerScope ? "Reset filtrów" : "Reset",
+        { type: "button", class: "secondary", onclick: () => navigate("#/listings", sellerFilterParams) },
+        sellerScope || params.sellerQuery ? "Reset filtrów" : "Reset",
       ),
       el("button", { type: "submit" }, "Filtruj"),
     ),
@@ -848,7 +882,16 @@ function viewListings(view, params) {
   function applyFilters() {
     const data = new FormData(filters);
     const next = {};
-    for (const [k, v] of data.entries()) if (v) next[k] = v;
+    for (const [k, v] of data.entries()) {
+      if (!v || k === "seller") continue;
+      next[k] = v;
+    }
+    const sellerValue = sellerInput.value.trim();
+    if (sellerValue) {
+      const exactSeller = sellerOptionByLabel.get(sellerValue.toLowerCase());
+      if (exactSeller?.seller_uuid) next.sellerUuid = exactSeller.seller_uuid;
+      else next.sellerQuery = sellerValue;
+    }
     navigate("#/listings", next);
   }
 
@@ -856,6 +899,14 @@ function viewListings(view, params) {
   const where = ["1=1"];
   const args = [];
   if (sellerScope) { where.push("l.seller_uuid = ?"); args.push(sellerScope.seller_uuid); }
+  if (params.sellerQuery) {
+    const sellerTerms = params.sellerQuery.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    for (const term of sellerTerms) {
+      where.push("(lower(COALESCE(l.seller_name, '')) LIKE ? OR lower(COALESCE(l.seller_location_city, '')) LIKE ? OR lower(COALESCE(l.seller_location_region, '')) LIKE ?)");
+      const pat = `%${term}%`;
+      args.push(pat, pat, pat);
+    }
+  }
   if (params.source) { where.push("l.source_id = ?"); args.push(params.source); }
   if (params.active === "1") where.push("l.is_active = 1");
   if (params.active === "0") where.push("l.is_active = 0");
