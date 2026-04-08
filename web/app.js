@@ -848,7 +848,7 @@ function viewListings(view, params) {
           el(
             "datalist",
             { id: sellerListId },
-            ...sellerOptions.map((seller) => el("option", { value: seller.label }, `${seller.listing_count}`)),
+            ...sellerOptions.map((seller) => el("option", { value: seller.label })),
           ),
         ],
         "field-seller",
