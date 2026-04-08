@@ -244,11 +244,15 @@ function parseHash() {
   return { path, params };
 }
 
-function navigate(path, params = {}) {
+function buildHash(path, params = {}) {
   const qs = new URLSearchParams(
     Object.entries(params).filter(([, v]) => v != null && v !== ""),
   ).toString();
-  location.hash = qs ? `${path}?${qs}` : path;
+  return qs ? `${path}?${qs}` : path;
+}
+
+function navigate(path, params = {}) {
+  location.hash = buildHash(path, params);
 }
 
 function route() {
@@ -711,6 +715,22 @@ function viewListings(view, params) {
   view.appendChild(el("h1", {}, "Listings"));
 
   const sources = query(state.db, "SELECT id, name FROM sources ORDER BY created_at ASC");
+  const sellerScope = params.sellerUuid
+    ? query(
+      state.db,
+      `SELECT seller_uuid, seller_name, seller_location_city, seller_location_region
+       FROM listings
+       WHERE seller_uuid = ?
+       ORDER BY last_seen_at DESC
+       LIMIT 1`,
+      [params.sellerUuid],
+    )[0] || { seller_uuid: params.sellerUuid }
+    : null;
+  const listingsBaseParams = sellerScope ? { sellerUuid: sellerScope.seller_uuid } : {};
+
+  if (sellerScope) {
+    view.appendChild(el("p", { class: "muted" }, `Widok sprzedawcy: ${formatSellerLabel(sellerScope)}`));
+  }
 
   // Filters
   const filters = el("form", { class: "filters", onsubmit: (e) => { e.preventDefault(); applyFilters(); } });
@@ -795,6 +815,7 @@ function viewListings(view, params) {
   // FIRST so it sits at the top of the form. Actions get the same full-span
   // treatment + a top divider via CSS.
   filters.append(
+    sellerScope ? input("hidden", "sellerUuid", sellerScope.seller_uuid) : null,
     field("Szukaj w tytule i opisie", input("text", "q", params.q, "np. ceramic brakes, BOSE, ppf..."), "field-search"),
     field("Źródło", sourceSelect),
     field("Status", activeSelect),
@@ -811,7 +832,14 @@ function viewListings(view, params) {
     tristate("serviceRecord", "Książka serwisowa", params.serviceRecord),
     field("Kraj pochodzenia", countrySelect),
     el("div", { class: "actions" },
-      el("button", { type: "button", class: "secondary", onclick: () => navigate("#/listings") }, "Reset"),
+      sellerScope
+        ? el("button", { type: "button", class: "secondary", onclick: () => navigate("#/listings") }, "Wszyscy sprzedawcy")
+        : null,
+      el(
+        "button",
+        { type: "button", class: "secondary", onclick: () => navigate("#/listings", listingsBaseParams) },
+        sellerScope ? "Reset filtrów" : "Reset",
+      ),
       el("button", { type: "submit" }, "Filtruj"),
     ),
   );
@@ -827,6 +855,7 @@ function viewListings(view, params) {
   // Build SQL
   const where = ["1=1"];
   const args = [];
+  if (sellerScope) { where.push("l.seller_uuid = ?"); args.push(sellerScope.seller_uuid); }
   if (params.source) { where.push("l.source_id = ?"); args.push(params.source); }
   if (params.active === "1") where.push("l.is_active = 1");
   if (params.active === "0") where.push("l.is_active = 0");
@@ -1031,13 +1060,10 @@ function viewListingDetail(view, id) {
     return;
   }
 
-  // Sellera pokazujemy w meta razem z lokalizacją (denormalizowaną z seller.location).
-  // Klikalny link do "Wszystkie listingi tego sprzedawcy" zostawiam na osobny ticket —
-  // wymaga query param w viewListings + nowego filtra po seller_uuid.
-  const sellerLine = [];
-  if (listing.seller_name) sellerLine.push(listing.seller_name);
-  if (listing.seller_location_city) sellerLine.push(listing.seller_location_city);
-  if (listing.seller_location_region) sellerLine.push(listing.seller_location_region);
+  const sellerLabel = formatSellerLabel(listing);
+  const sellerListingsHref = listing.seller_uuid
+    ? buildHash("#/listings", { sellerUuid: listing.seller_uuid })
+    : null;
 
   view.appendChild(el(
     "div", { class: "detail-header" },
@@ -1047,7 +1073,8 @@ function viewListingDetail(view, id) {
         activeBadge(listing.is_active),
         el("span", {}, `źródło: ${listing.source_name}`),
         listing.seller_type ? el("span", {}, `sprzedawca: ${listing.seller_type === "BUSINESS" ? "Firma" : listing.seller_type === "PRIVATE" ? "Osoba prywatna" : listing.seller_type}`) : null,
-        sellerLine.length > 0 ? el("span", {}, sellerLine.join(" · ")) : null,
+        sellerLabel ? el("span", {}, sellerLabel) : null,
+        sellerListingsHref ? el("a", { href: sellerListingsHref }, "Wszystkie oferty sprzedawcy") : null,
         el("span", {}, `external id: ${listing.external_id}`),
         el("a", { href: listing.listing_url, target: "_blank", rel: "noopener" }, "Otwórz ofertę ↗"),
       ),
@@ -1556,6 +1583,14 @@ function truncate(text, n) {
   if (text == null) return "—";
   const s = String(text);
   return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+function formatSellerLabel(listing) {
+  const parts = [];
+  if (listing?.seller_name) parts.push(listing.seller_name);
+  if (listing?.seller_location_city) parts.push(listing.seller_location_city);
+  if (listing?.seller_location_region) parts.push(listing.seller_location_region);
+  return parts.join(" · ") || listing?.seller_uuid || "";
 }
 
 function formatChangeValue(fieldName, value) {
