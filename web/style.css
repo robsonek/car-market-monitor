@@ -605,17 +605,39 @@ button.secondary {
 }
 .timeline .diff-arrow { color: var(--muted); font-size: 13px; padding-top: 2px; }
 
-/* Seller description panel. description_text zachowuje \n-y po stripHtml,
-   więc pre-wrap jest jedyną rzeczą której potrzebujemy żeby podział akapitów
-   nie zgubił się. word-break: break-word żeby długie URL-e / VIN-y bez spacji
-   nie rozpychały panelu na mobile. */
+/* Seller description panel. Renderowany jest sanitizowany HTML z
+   payload_json.description_html (phone tokeny rozwiązane przy ingest'cie). */
 .description-body {
   padding: 14px 16px;
-  white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.55;
   color: var(--text);
+}
+
+.description-body > :first-child { margin-top: 0; }
+.description-body > :last-child { margin-bottom: 0; }
+
+.description-body p,
+.description-body div,
+.description-body ul,
+.description-body ol,
+.description-body blockquote {
+  margin: 0 0 0.9em;
+}
+
+.description-body ul,
+.description-body ol {
+  padding-left: 1.4em;
+}
+
+.description-body a {
+  color: var(--accent);
+}
+
+.description-body a[data-kind="phone"] {
+  font-weight: 600;
 }
 
 /* Word-level inline diff. Common parts dim, removed/added highlighted. */

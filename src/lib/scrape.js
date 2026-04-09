@@ -8,7 +8,7 @@ import {
 import { PARAM_COLUMNS } from "./marketplace-source-params.js";
 import { diffImageUrlArrays } from "../../shared/image-urls.js";
 import { diffValueAddedServices } from "../../shared/value-added-services.js";
-import { HttpError, flattenForDiff, nowIso, randomId, sha256Hex, sleep, stableStringify } from "./utils.js";
+import { HttpError, flattenForDiff, nowIso, randomId, sha256Hex, sleep, stableStringify, stripHtml } from "./utils.js";
 
 export const RUN_STATUSES = {
   SUCCESS: "SUCCESS",
@@ -364,7 +364,6 @@ function buildDetailColumns(detail) {
     last_mileage: detail.mileage != null ? String(detail.mileage) : null,
     last_year: detail.year != null ? String(detail.year) : null,
     // ----- new top-level columns from migration 0003 -----
-    description_text: detail.description_text || null,
     vin: detail.vin,
     registration: detail.registration,
     date_registration: detail.date_registration,
@@ -401,7 +400,6 @@ function buildDetailColumns(detail) {
     const meta = new Set([
       "listing_url", "title", "seller_type", "current_status",
       "last_price_amount", "last_mileage", "last_year",
-      "description_text",
       "vin", "registration", "date_registration", "phones_json",
       "image_count",
       "seller_uuid", "seller_id", "seller_name",
@@ -715,8 +713,8 @@ function insertSnapshot(db, { snapshotId, listingId, runId, capturedAt, hash, de
   db.prepare(
     `INSERT INTO listing_snapshots (
        id, listing_id, run_id, snapshot_hash, captured_at, title, price_amount, mileage, year,
-       description_text, payload_json, field_map_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       payload_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     snapshotId,
     listingId,
@@ -727,12 +725,7 @@ function insertSnapshot(db, { snapshotId, listingId, runId, capturedAt, hash, de
     detail.price_amount != null ? String(detail.price_amount) : null,
     detail.mileage != null ? String(detail.mileage) : null,
     detail.year != null ? String(detail.year) : null,
-    detail.description_text,
     stableStringify(detail.payload),
-    // field_map_json jest teraz wyliczany dynamicznie z payload_json w
-    // loadFieldMap() — patrz migration 0005. Kolumna pozostaje NOT NULL dla
-    // kompatybilności schematu, więc piszemy pusty string.
-    "",
   );
 }
 
@@ -753,26 +746,24 @@ function insertChange(db, change) {
   );
 }
 
-// Field map rekonstruujemy z payload_json zamiast trzymać w osobnej kolumnie.
-// Historycznie field_map_json był największym składnikiem bazy (~36 MB z ~70
-// MB) i w dużej części duplikował dane z payload_json. Konwersja jest tania
-// (JSON.parse + flatten), a uruchamia się tylko dla poprzedniego snapshotu
-// przy wykrywaniu zmian.
+// Field map rekonstruujemy z payload_json — nie trzymamy go w osobnej
+// kolumnie. Konwersja jest tania (JSON.parse + flatten), a uruchamia się
+// tylko dla poprzedniego snapshotu przy wykrywaniu zmian.
 //
 // Kontrakt payload_json ↔ field_map (patrz też marketplace-source.js):
 //
 //  - listing_card jest w payload_json, ale NIE w field_mapie (page_number/
 //    page_position rotują co run — phantom diffy). Odcinamy przed flattenem.
 //
-//  - description_text jest w field_mapie, ale NIE w payload_json (trzymany
-//    oddzielnie w kolumnie listing_snapshots.description_text, żeby nie
-//    duplikować ~2 MB). Wstrzykujemy z kolumny przed flattenem. Stare
-//    snapshoty sprzed backfillu nadal mogą mieć description_text w payloadzie
-//    — w takim przypadku iniekcja jest no-opem, bo wartość jest identyczna.
+//  - description_html siedzi w payload_json jako JEDYNA forma opisu. Do
+//    field_mapa potrzebujemy jednak description_text (bo diff/hash działają
+//    na plain text), więc derywujemy go przez stripHtml w locie. Sam
+//    description_html zostaje w field_mapie, ale jest filtrowany z hasha
+//    i diffa przez NOISY_FIELD_PREFIXES.
 function loadFieldMap(db, snapshotId) {
   if (!snapshotId) return {};
   const row = db
-    .prepare("SELECT payload_json, description_text FROM listing_snapshots WHERE id = ?")
+    .prepare("SELECT payload_json FROM listing_snapshots WHERE id = ?")
     .get(snapshotId);
   if (!row?.payload_json) return {};
   let payload;
@@ -783,13 +774,8 @@ function loadFieldMap(db, snapshotId) {
   }
   if (payload && typeof payload === "object") {
     delete payload.listing_card;
-    // Wstrzyknij description_text z kolumny. Dla nowych snapshotów (po
-    // migration 0006) payload.description_text jest undefined, więc to
-    // przywraca je dla flattenu. Dla starych snapshotów wartość w payloadzie
-    // jest identyczna z kolumną (obie z tego samego descriptionText w
-    // normalizeDetail), więc nadpisanie jest bezpieczne.
-    if (row.description_text != null) {
-      payload.description_text = row.description_text;
+    if (payload.description_html != null) {
+      payload.description_text = stripHtml(payload.description_html);
     }
   }
   return flattenForDiff(payload);

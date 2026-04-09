@@ -94,6 +94,26 @@ function applyMigrations(db) {
     .filter((name) => name.endsWith(".sql"))
     .sort();
   const currentVersion = db.pragma("user_version", { simple: true });
+
+  // Guard: legacy database that has seen more migration files than currently
+  // exist in the repo. Zdarza się gdy spłaszczamy historię migracji i
+  // publikujemy nowy model "wyczyść plik i puść scrape od zera" — stara
+  // baza ma user_version=N (N>1), nowy repo ma pojedynczy plik 0001_init.sql
+  // (files.length=1), więc domyślny kod BYŁBY no-opem i zostawiłby schemę
+  // w starym kształcie. Następny INSERT od razu eksplodowałby na NOT NULL
+  // constraint albo "column does not exist", w momencie w którym jesteśmy
+  // już w środku scrape'a. Wolimy fail-fast przy otwarciu.
+  if (currentVersion > files.length) {
+    throw new Error(
+      `Database at this path was created against a newer or incompatible ` +
+      `migration history (user_version=${currentVersion}, but the repo only ` +
+      `has ${files.length} migration file${files.length === 1 ? "" : "s"}). ` +
+      `The schema was flattened and legacy databases cannot be upgraded ` +
+      `in-place. Delete the database file and its -wal/-shm/.version.json ` +
+      `siblings, then re-run the scrape to rebuild from scratch.`,
+    );
+  }
+
   files.forEach((file, idx) => {
     const targetVersion = idx + 1;
     if (currentVersion >= targetVersion) return;
@@ -104,4 +124,39 @@ function applyMigrations(db) {
     });
     tx();
   });
+
+  // Schema fingerprint guard. Pre-check na user_version łapie „baza widziała
+  // więcej migracji niż dziś istnieje", ale zostaje jeszcze klasa stanów
+  // w których user_version wygląda OK, a schema pod spodem jest stara —
+  // np. ktoś ręcznie dotknął PRAGMA, migracja padła w połowie, albo
+  // zewnętrzne narzędzie obcięło tabelę. Sprawdzamy kilka kolumn których
+  // obecność/brak jest podpisem bieżącej wersji schematu.
+  //
+  // Brak tabeli listing_snapshots to też błąd — fresh apply ZAWSZE ją
+  // tworzy, więc nieobecność sygnalizuje niekompletny lub ręcznie zepsuty
+  // stan, a nie "nowa baza". Wolimy tu failnąć niż pozwolić scrape'owi
+  // wywrócić się dopiero na pierwszym INSERT.
+  const snapshotInfo = db.prepare("PRAGMA table_info(listing_snapshots)").all();
+  if (snapshotInfo.length === 0) {
+    throw new Error(
+      `Database is missing the listing_snapshots table after migration. ` +
+      `This means either the migration file did not run (check file ` +
+      `permissions on ${MIGRATIONS_DIR}) or the database was partially ` +
+      `mutated after apply. Delete the database file and re-scrape.`,
+    );
+  }
+  const names = new Set(snapshotInfo.map((r) => r.name));
+  const mustExist = ["payload_json"];
+  const mustNotExist = ["description_text", "field_map_json"];
+  const missing = mustExist.filter((c) => !names.has(c));
+  const legacy = mustNotExist.filter((c) => names.has(c));
+  if (missing.length > 0 || legacy.length > 0) {
+    throw new Error(
+      `Database schema does not match the expected shape after migration. ` +
+      `listing_snapshots is missing [${missing.join(", ") || "none"}] and ` +
+      `still has legacy columns [${legacy.join(", ") || "none"}]. This ` +
+      `usually means the file was created against an older migration ` +
+      `history. Delete the database file and re-scrape.`,
+    );
+  }
 }

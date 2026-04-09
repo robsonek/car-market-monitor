@@ -1,6 +1,7 @@
 import { decryptToken, decryptTokens } from "./marketplace-source-tokens.js";
 import { extractParams } from "./marketplace-source-params.js";
 import { HttpError, flattenForDiff, sha256Hex, stableStringify, stableValue, stripHtml } from "./utils.js";
+import { normalizeDescriptionHtml } from "./description-html.js";
 import { normalizeValueAddedServices } from "../../shared/value-added-services.js";
 
 const LISTING_NEXT_DATA_RE = /<script id="__NEXT_DATA__" type="application\/json"[^>]*>(.*?)<\/script>/s;
@@ -121,7 +122,11 @@ export async function scrapeMarketplaceDetail(card, fetchImpl = fetch) {
 }
 
 // Pull tokenized phone entries out of the description HTML when present.
-const INLINE_PHONE_TOKEN_RE = /phoneNumber="([^"]+)"/g;
+// Case-insensitive: upstream HTML miesza `phoneNumber` i `phonenumber`, a
+// normalizeDescriptionHtml i tak lowercase'uje nazwy atrybutów przy
+// parsowaniu — regex musi być z nim spójny, inaczej inline numery z
+// lowercase spanów znikały przed dojściem do decrypt / phones_json.
+const INLINE_PHONE_TOKEN_RE = /phoneNumber="([^"]+)"/gi;
 function extractInlinePhoneTokens(html) {
   if (!html) return [];
   const out = [];
@@ -307,13 +312,20 @@ async function normalizeDetail(advert, card) {
   const advertId = advert.id != null ? String(advert.id) : null;
   const sellerUuid = seller.uuid || null;
   const inlinePhoneTokens = extractInlinePhoneTokens(advert.description || "");
-  const [vinPlain, regPlain, datePlain, mainPhones, descPhones] = await Promise.all([
+  const [vinPlain, regPlain, datePlain, mainPhonesRaw, descPhonesRaw] = await Promise.all([
     decryptToken(advert.parametersDict?.vin?.values?.[0]?.value, advertId),
     decryptToken(advert.parametersDict?.registration?.values?.[0]?.value, advertId),
     decryptToken(advert.parametersDict?.date_registration?.values?.[0]?.value, advertId),
+    // decryptTokens zachowuje pozycyjne wyrównanie — nulle zostają w tablicy,
+    // żeby dało się zrobić `inputTokens[i] ↔ decrypted[i]` mapowanie. Dla
+    // phones_json i sorted arrayów w payloadzie chcemy zwykłej listy, więc
+    // filtrujemy nulle lokalnie; dla phoneTokenMap używamy raw arrayów z
+    // preserved indices.
     decryptTokens(advert.phoneNumbers || [], sellerUuid),
     decryptTokens(inlinePhoneTokens, sellerUuid),
   ]);
+  const mainPhones = mainPhonesRaw.filter((v) => v != null);
+  const descPhones = descPhonesRaw.filter((v) => v != null);
 
   // ----- Materialize the entire parametersDict as a flat typed object. The
   // shape of `params` is dictated by src/lib/marketplace-source-params.js (which is in
@@ -323,7 +335,23 @@ async function normalizeDetail(advert, card) {
   const phones = { main: mainPhones, description: descPhones };
   const phonesJson = JSON.stringify(phones);
   const imageCount = advert.images?.photos?.length || 0;
-  const descriptionText = stripHtml(advert.description || "");
+  // Mapowanie encrypted token → decrypted phone. Używane przez
+  // normalizeDescriptionHtml do podmiany `phoneNumber="<ciphertext>"` na
+  // statyczny `<a href="tel:...">`, co stabilizuje HTML między scrape'ami.
+  // Iterujemy po raw arrayu (z zachowanymi nullami), żeby jeden uszkodzony
+  // token nie zepsuł mapowania wszystkich kolejnych — zły zostaje po prostu
+  // pominięty, reszta dalej idzie w parze z właściwym tokenem.
+  const phoneTokenMap = new Map();
+  inlinePhoneTokens.forEach((token, idx) => {
+    const resolved = descPhonesRaw[idx];
+    if (token && resolved) phoneTokenMap.set(token, resolved);
+  });
+  const normalizedDescriptionHtml = normalizeDescriptionHtml(advert.description || null, phoneTokenMap);
+  // description_text jest derywowane w locie ze znormalizowanego HTML'a.
+  // Nie zapisujemy go w payload_json — plain text jest liczony ze stripHtml
+  // przy każdym diffie (scrape.js:loadFieldMap) i przy search w UI
+  // (strip_html JSON SQL function).
+  const descriptionText = stripHtml(normalizedDescriptionHtml || "");
   const sellerLocation = seller.location || null;
 
   const snapshotPayload = stableValue({
@@ -340,11 +368,19 @@ async function normalizeDetail(advert, card) {
       labels: advert.price?.labels || [],
       is_under_budget: advert.price?.isUnderBudget ?? null,
     },
-    // description_html nie trafia już do payloadu — był w NOISY_FIELD_PREFIXES,
-    // więc i tak filtrowany z hasha/diffów, a zajmował ~2.5 MB w bazie. Od
-    // tekstu trzyma się description_text (po stripHtml), i to z niego jest
-    // liczony diff.
+    // Opis żyje w dwóch kluczach w snapshotPayload, ale w bazie zapisujemy
+    // TYLKO description_html (w storedPayload poniżej). description_text jest
+    // potrzebne tu, bo:
+    //   - wchodzi do field_mapa (diff + listing_changes emit)
+    //   - wchodzi do hasha (stabilna, plain-text reprezentacja opisu)
+    // description_html wchodzi do snapshotPayload tylko po to, żeby
+    // computeSnapshotHash mógł go odfiltrować via NOISY_FIELD_PREFIXES
+    // (zostaje w field_mapie pod `description_html`, ale tylko tranzytem —
+    // nigdy nie bierze udziału w hashu ani diffie). Przy rekonstrukcji
+    // z payload_json (loadFieldMap) robimy odwrotne mapowanie: strip HTML
+    // do tekstu i ponownie symulujemy tę parę kluczy.
     description_text: descriptionText,
+    description_html: normalizedDescriptionHtml,
     main_features: advert.mainFeatures || [],
     ad_features: (advert.adFeatures || []).slice().sort(),
     badges: (advert.badges || []).slice().sort(),
@@ -400,14 +436,15 @@ async function normalizeDetail(advert, card) {
   //    mogą wejść do field_mapa (poison: phantom diffy na każdym snapshocie).
   //    loadFieldMap() odcina listing_card przed flattenem.
   //
-  //  - USUWAMY description_text: trzymamy go już w kolumnie
-  //    listing_snapshots.description_text (używanej przez search w dashboardzie),
-  //    więc kopia w payload_json to czysta duplikacja ~2 MB. loadFieldMap()
-  //    wstrzykuje go z powrotem z kolumny przed flattenem, więc field_map i
-  //    hash pozostają identyczne jak przed zmianą.
+  //  - USUWAMY description_text: opis żyje w bazie wyłącznie jako
+  //    description_html. Plain text jest derywowany na żądanie (stripHtml w
+  //    loadFieldMap dla diffów, strip_html() SQL func dla searcha). Bez tego
+  //    mieliśmy ~2x duplikację tego samego tekstu na snapshot.
   //
-  // field_map liczony jest z pełnego snapshotPayload (z description_text),
-  // żeby zachować stabilność hasha dla wszystkich historycznych listingów.
+  // field_map liczony jest z pełnego snapshotPayload — description_html jest
+  // odfiltrowywany z hasha przez NOISY_FIELD_PREFIXES (bo jest to surowy HTML,
+  // który chcemy mieć tylko w payloadzie, nie w diffach), a description_text
+  // dalej uczestniczy normalnie.
   const storedPayload = { ...snapshotPayload };
   delete storedPayload.description_text;
   const payload = stableValue({
@@ -435,7 +472,6 @@ async function normalizeDetail(advert, card) {
     // stringify them for the legacy text columns.
     mileage: params.mileage != null ? String(params.mileage) : (card.mileage != null ? String(card.mileage) : null),
     year: params.year != null ? String(params.year) : (card.year != null ? String(card.year) : null),
-    description_text: descriptionText,
     condition: extractCondition(parameters),
     payload,
     field_map: fieldMap,

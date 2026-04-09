@@ -42,7 +42,47 @@ async function loadDb() {
     throw new Error(`Cannot fetch ${DB_PATH}: HTTP ${res.status}`);
   }
   const buf = await res.arrayBuffer();
-  return { db: new SQL.Database(new Uint8Array(buf)), sizeBytes: buf.byteLength };
+  const db = new SQL.Database(new Uint8Array(buf));
+  // Rejestrujemy funkcję SQL strip_html, żeby search mógł filtrować po tekście
+  // opisu wyprowadzonym z payload_json.description_html. Opis żyje w bazie
+  // wyłącznie jako HTML — plain text liczymy w locie. Przy ~2k listingach
+  // full-scan z per-row strip_html jest szybszy niż alternatywy i nie wymaga
+  // duplikowania tekstu w osobnej kolumnie.
+  db.create_function("strip_html", (html) => stripHtml(html || ""));
+  return { db, sizeBytes: buf.byteLength };
+}
+
+// Node-side stripHtml żyje w src/lib/utils.js. Tu trzymamy lustrzaną kopię —
+// same reguły transformacji, bo używamy jej zarówno w sanitize-po-renderze,
+// jak i w SQL LIKE filtrowaniu search'a. Gdybyśmy kiedyś chcieli to wydzielić,
+// zrobiłoby się to w osobnym ESM module współdzielonym z Node.
+const HTML_NAMED_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+function decodeHtmlEntities(text) {
+  if (!text) return "";
+  return text
+    .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, name) => HTML_NAMED_ENTITIES[name] ?? `&${name};`)
+    .replace(/&#(\d+);/g, (_, code) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
+    })
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => {
+      const n = Number.parseInt(code, 16);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : "";
+    });
+}
+function stripHtml(html) {
+  if (!html) return "";
+  return decodeHtmlEntities(
+    html
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n")
+      .replace(/<[^>]+>/g, " "),
+  )
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 async function init() {
@@ -120,6 +160,14 @@ function el(tag, attrs = {}, ...children) {
   }
   return node;
 }
+
+const DESCRIPTION_ALLOWED_TAGS = new Set([
+  "a", "b", "blockquote", "br", "div", "em", "i", "li", "ol", "p", "span", "strong", "u", "ul",
+]);
+
+const DESCRIPTION_DROP_TAGS = new Set([
+  "iframe", "math", "noscript", "object", "script", "style", "svg", "template",
+]);
 
 function clearView() {
   const view = document.getElementById("view");
@@ -1109,7 +1157,12 @@ function viewListings(view, params) {
     // wielkości, pora na FTS5 z unicode61 tokenizerem.
     const terms = params.q.toLowerCase().trim().split(/\s+/).filter(Boolean);
     for (const term of terms) {
-      where.push("(lower(l.title) LIKE ? OR lower(snap.description_text) LIKE ?)");
+      // Opis żyje tylko jako HTML w payload_json.description_html. strip_html
+      // jest customowym SQL functionem rejestrowanym na db w loadDb() i
+      // wywołuje stripHtml z JS per wiersz. Przy obecnej skali (~1k listings)
+      // full-scan z per-row decode + strip jest nadal pod 50 ms. Jeśli baza
+      // urośnie o rząd wielkości, pora na FTS5.
+      where.push("(lower(l.title) LIKE ? OR lower(strip_html(json_extract(snap.payload_json, '$.description_html'))) LIKE ?)");
       const pat = `%${term}%`;
       args.push(pat, pat);
     }
@@ -1346,12 +1399,13 @@ function viewListingDetail(view, id) {
   const lastSnapshot = listing.last_snapshot_id
     ? query(state.db, "SELECT payload_json FROM listing_snapshots WHERE id = ?", [listing.last_snapshot_id])[0]
     : null;
+  let snapshotPayload = null;
   let galleryUrls = [];
   if (lastSnapshot?.payload_json) {
     try {
-      const payload = JSON.parse(lastSnapshot.payload_json);
-      if (Array.isArray(payload.images?.urls)) {
-        galleryUrls = payload.images.urls;
+      snapshotPayload = JSON.parse(lastSnapshot.payload_json);
+      if (Array.isArray(snapshotPayload.images?.urls)) {
+        galleryUrls = snapshotPayload.images.urls;
       }
     } catch {}
   }
@@ -1376,19 +1430,19 @@ function viewListingDetail(view, id) {
     view.appendChild(galleryPanel);
   }
 
+  const phones = parsePhonesJson(listing.phones_json);
+
   // ----- Panel: Opis sprzedawcy -----
-  // description_text pochodzi z stripHtml(advert.description) w normalizeDetail
-  // — czysty tekst z zachowanymi newline'ami (stripHtml konwertuje <br> i </p>
-  // na \n). Renderujemy jako pre-wrap żeby podział akapitów się nie zgubił.
-  // description_html celowo NIE jest pokazywany — źródło wstrzykuje w surowy
-  // HTML rotujące inline phone spans, więc byłby to noise + potencjalna
-  // powierzchnia XSS gdyby innerHTML kiedykolwiek został użyty.
-  // Panel pomijamy całkowicie gdy opis pusty — nie ma sensu rysować pustego
-  // kontenera (listing-szkielet bez detalu nie ma description_text).
-  if (listing.description_text && listing.description_text.trim().length > 0) {
+  // Opis żyje wyłącznie jako znormalizowany HTML w payload_json.description_html.
+  // Phone tokeny są już rozwiązane przy ingest'cie (marketplace-source.js), więc
+  // frontend nie musi nic podmieniać — tylko przepuszcza przez lokalny
+  // sanitizer jako drugą linię obrony (XSS-hardening na wypadek kompromitacji
+  // bazy albo buga w ingest'cie).
+  const richDescription = renderDescriptionHtml(snapshotPayload?.description_html);
+  if (richDescription) {
     const descPanel = el("div", { class: "panel" });
     descPanel.appendChild(el("div", { class: "panel-header" }, "Opis sprzedawcy"));
-    descPanel.appendChild(el("div", { class: "description-body" }, listing.description_text));
+    descPanel.appendChild(el("div", { class: "description-body" }, richDescription));
     view.appendChild(descPanel);
   }
 
@@ -1397,7 +1451,6 @@ function viewListingDetail(view, id) {
   // Wszystkie pola są opcjonalne — sprzedawcy nie są zmuszeni je wypełniać.
   // Panel pokazujemy zawsze (nawet jeśli wszystko puste) bo brak VIN/rejestracji
   // sam w sobie jest sygnałem (np. "auto bez papierów" = warto wiedzieć).
-  const phones = parsePhonesJson(listing.phones_json);
   const idPanel = el("div", { class: "panel" });
   idPanel.appendChild(el("div", { class: "panel-header" }, "Identyfikacja"));
   const idTable = el("table");
@@ -2150,6 +2203,84 @@ function parsePhonesJson(raw) {
   } catch {
     return { main: [], description: [] };
   }
+}
+
+// Defense-in-depth sanitizer: ingest już wyprodukował czysty HTML (patrz
+// src/lib/description-html.js), ale nie ufamy ślepo temu co siedzi w bazie.
+// DOMParser parsuje w trybie "text/html", który NIE wykonuje skryptów —
+// bezpieczne do walk'owania. Po sanitizacji emitujemy DocumentFragment.
+function renderDescriptionHtml(rawHtml) {
+  if (!rawHtml || typeof rawHtml !== "string") return null;
+  const doc = new DOMParser().parseFromString(rawHtml, "text/html");
+  const container = document.createElement("div");
+  for (const child of Array.from(doc.body.childNodes)) {
+    appendDescriptionNode(container, sanitizeDescriptionNode(child));
+  }
+  if (!container.textContent?.trim() && container.children.length === 0) {
+    return null;
+  }
+  const fragment = document.createDocumentFragment();
+  while (container.firstChild) fragment.appendChild(container.firstChild);
+  return fragment;
+}
+
+function sanitizeDescriptionNode(node) {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return document.createTextNode(node.textContent || "");
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return null;
+  }
+
+  const tag = node.tagName.toLowerCase();
+
+  if (DESCRIPTION_DROP_TAGS.has(tag)) {
+    return null;
+  }
+
+  if (!DESCRIPTION_ALLOWED_TAGS.has(tag)) {
+    const fragment = document.createDocumentFragment();
+    for (const child of Array.from(node.childNodes)) {
+      appendDescriptionNode(fragment, sanitizeDescriptionNode(child));
+    }
+    return fragment;
+  }
+
+  if (tag === "br") {
+    return document.createElement("br");
+  }
+
+  const safeHref = tag === "a" ? sanitizeDescriptionHref(node.getAttribute("href")) : null;
+  const clean = document.createElement(tag === "a" && !safeHref ? "span" : tag);
+  if (tag === "a" && safeHref) {
+    clean.setAttribute("href", safeHref);
+    if (/^https?:/i.test(safeHref)) {
+      clean.setAttribute("target", "_blank");
+      clean.setAttribute("rel", "noopener noreferrer");
+    }
+  }
+  // Zachowujemy `data-kind="phone"` tylko dla <a> tagów — to marker, który
+  // ingest stawia na rozwiązanych numerach telefonów, żeby CSS mógł im dać
+  // delikatny bold. Reszta atrybutów z bazy jest wycinana po cichu.
+  if (tag === "a" && node.getAttribute("data-kind") === "phone") {
+    clean.setAttribute("data-kind", "phone");
+  }
+  for (const child of Array.from(node.childNodes)) {
+    appendDescriptionNode(clean, sanitizeDescriptionNode(child));
+  }
+  return clean;
+}
+
+function appendDescriptionNode(parent, child) {
+  if (!child) return;
+  parent.appendChild(child);
+}
+
+function sanitizeDescriptionHref(href) {
+  if (!href || typeof href !== "string") return null;
+  const trimmed = href.trim();
+  if (!/^(https?:|mailto:|tel:)/i.test(trimmed)) return null;
+  return trimmed;
 }
 
 function renderPhoneList(numbers) {

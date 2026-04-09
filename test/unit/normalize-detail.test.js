@@ -135,6 +135,110 @@ test("normalizeDetail decrypts phones (main + inline) and sorts them", async () 
   assert.deepEqual(detail.payload.decrypted.phones_description, [FAKE_INLINE_PHONE]);
 });
 
+test("normalizeDetail normalizes description HTML and stores only the HTML form", async () => {
+  const advert = await buildSyntheticAdvert();
+  const detail = await normalizeDetail(advert, FAKE_CARD);
+
+  // Raw advert.description ma rotujący phoneNumber token. normalizeDetail
+  // przechodzi przez normalizeDescriptionHtml, więc zapisane payload.description_html
+  // powinno mieć już podmieniony <a href="tel:..."> z odszyfrowanym numerem —
+  // NIE surowy ciphertext z upstream'u.
+  assert.ok(detail.payload.description_html.includes("Stan idealny."), "description_html missing text");
+  assert.ok(
+    detail.payload.description_html.includes(FAKE_INLINE_PHONE),
+    "description_html should contain resolved inline phone number",
+  );
+  assert.equal(
+    detail.payload.description_html.includes("phoneNumber="),
+    false,
+    "raw phoneNumber ciphertext attribute leaked into stored HTML",
+  );
+
+  // W payload_json nie ma description_text — tylko opis jako HTML.
+  assert.equal(Object.hasOwn(detail.payload, "description_text"), false);
+
+  // field_map ma obie formy: description_text (dla diffów/hasha, derywowane
+  // ze stripHtml znormalizowanego HTML'a) i description_html (transit, filtr
+  // noisy w computeSnapshotHash). Tekst musi zawierać widoczny numer telefonu,
+  // bo siedzi teraz w HTML jako plaintext po ingest'cie.
+  assert.ok(detail.field_map.description_text.includes("Stan idealny."));
+  assert.ok(detail.field_map.description_text.includes(FAKE_INLINE_PHONE));
+  assert.ok(Object.hasOwn(detail.field_map, "description_html"));
+});
+
+test("normalizeDetail no longer exposes top-level description_text (stored only via payload_json)", async () => {
+  const advert = await buildSyntheticAdvert();
+  const detail = await normalizeDetail(advert, FAKE_CARD);
+
+  // detail.description_text zostało skasowane z return value — scrape.js
+  // nie pisze już do listing_snapshots.description_text bo kolumna nie istnieje.
+  assert.equal(Object.hasOwn(detail, "description_text"), false);
+});
+
+test("normalizeDetail extracts and resolves lowercase phonenumber attribute", async () => {
+  // Upstream HTML miesza `phoneNumber` i `phonenumber` — regex wyciągający
+  // tokeny MUSI być case-insensitive, inaczej inline numer znika przed
+  // decryptem i phones_json.description zostaje puste. Regresja: wcześniej
+  // regex miał tylko `g` bez `i`, więc ten test by failował.
+  const lowercaseInlineToken = await encryptToken(FAKE_INLINE_PHONE, FAKE_SELLER_UUID);
+  const advert = await buildSyntheticAdvert();
+  advert.description = `<p>Stan idealny.</p><span phonenumber="${lowercaseInlineToken}">kliknij</span>`;
+
+  const detail = await normalizeDetail(advert, FAKE_CARD);
+  const phones = JSON.parse(detail.phones_json);
+
+  assert.deepEqual(phones.description, [FAKE_INLINE_PHONE], "lowercase phonenumber token was dropped");
+  assert.ok(
+    detail.payload.description_html.includes(FAKE_INLINE_PHONE),
+    "lowercase phonenumber token not resolved in stored HTML",
+  );
+  assert.equal(
+    detail.payload.description_html.toLowerCase().includes("phonenumber="),
+    false,
+    "raw phonenumber attribute leaked into stored HTML",
+  );
+});
+
+test("normalizeDetail survives one undecryptable inline phone token without corrupting others", async () => {
+  // Regresja: decryptTokens filtrowało nulle, więc zły token w środku listy
+  // przesuwał indeksy i następny `phoneTokenMap.set(inputTokens[i], ...)`
+  // łączył zły token z numerem który należał do zupełnie innego. Efekt:
+  // ten sam numer pojawiał się dla dwóch różnych tokenów i/lub dobry token
+  // dostawał zły numer. Poprawka: decryptTokens zachowuje nulle na swoich
+  // pozycjach, caller iteruje po raw arrayu i pomija nullowe pary.
+  const okTokenA = await encryptToken("+48111111111", FAKE_SELLER_UUID);
+  const okTokenB = await encryptToken("+48222222222", FAKE_SELLER_UUID);
+  const advert = await buildSyntheticAdvert();
+  advert.description =
+    `<p>Numery:</p>` +
+    `<span phoneNumber="${okTokenA}">a</span>` +
+    // Celowo zły token — decryptToken zwróci null.
+    `<span phoneNumber="CORRUPT-NOT-BASE64">b</span>` +
+    `<span phoneNumber="${okTokenB}">c</span>`;
+
+  const detail = await normalizeDetail(advert, FAKE_CARD);
+  const phones = JSON.parse(detail.phones_json);
+
+  // phones_json.description: dobre numery zostają, zły jest odfiltrowany.
+  // Kluczowe: kolejność pozostaje (+48111111111 PRZED +48222222222), bo
+  // positional alignment jest zachowane w raw arrayu.
+  assert.deepEqual(phones.description, ["+48111111111", "+48222222222"]);
+
+  // Storage HTML ma dokładnie jeden anchor per numer, każdy z właściwym
+  // `tel:` hrefem. Liczymy hrefy (nie surowy tekst), bo każdy numer pojawia
+  // się w HTML dwa razy — raz w atrybucie `href="tel:..."` i raz jako tekst
+  // linka — a interesuje nas kardynalność linków, nie surowych wystąpień.
+  const html = detail.payload.description_html;
+  assert.equal((html.match(/href="tel:\+48111111111"/g) || []).length, 1, "first number anchor missing or duplicated");
+  assert.equal((html.match(/href="tel:\+48222222222"/g) || []).length, 1, "second number anchor missing or duplicated");
+  // Uszkodzony token nie może wyciec do storage'u.
+  assert.equal(html.includes("CORRUPT"), false);
+  // I nie może się wyprodukować kolejny anchor z przesuniętym numerem —
+  // np. drugi okToken nie może dostać numeru pierwszego przez indeks shift.
+  const anchorOrder = [...html.matchAll(/href="tel:(\+48\d+)"/g)].map((m) => m[1]);
+  assert.deepEqual(anchorOrder, ["+48111111111", "+48222222222"], "anchor order desynced from token order");
+});
+
 test("normalizeDetail sorts image URLs lexicographically", async () => {
   const advert = await buildSyntheticAdvert();
   const detail = await normalizeDetail(advert, FAKE_CARD);

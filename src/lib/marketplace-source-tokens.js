@@ -59,11 +59,16 @@ export async function decryptToken(token, secret) {
   }
 }
 
-// Convenience: decrypt an array of tokens with the same secret. Preserves order.
+// Convenience: decrypt an array of tokens with the same secret. Preserves
+// order AND positional alignment — uszkodzone wejścia zostają jako `null` w
+// wyniku, żeby caller mógł robić `tokens[i] ↔ decrypted[i]` mapowanie. Dla
+// konsumentów którym zależy tylko na liście numerów (phones_json, sorted
+// arrays w payloadzie) przejście to zwykły `.filter((v) => v != null)` na
+// call-site — kosztuje linijkę, ale eliminuje klasę błędów w której jeden
+// zepsuty token podmienia wszystkie kolejne na zły numer.
 export async function decryptTokens(tokens, secret) {
   if (!Array.isArray(tokens) || tokens.length === 0) return [];
-  const results = await Promise.all(tokens.map((t) => decryptToken(t, secret)));
-  return results.filter((v) => v !== null);
+  return Promise.all(tokens.map((t) => decryptToken(t, secret)));
 }
 
 // Test-only: lets unit tests reset state between cases.

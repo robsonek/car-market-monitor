@@ -1,20 +1,15 @@
-// Migration tests. Each test creates a brand-new tmp file db, runs
-// openDatabase() (which applies migrations), and asserts the post-migration
-// schema state. closeDatabase() always refreshes <db>.version.json so we also
-// verify the manifest stays consistent.
-//
-// We deliberately do NOT use the project env var process.env.CAR_MARKET_MONITOR_DB_PATH —
-// openDatabase / closeDatabase already accept an explicit path argument, and
-// global env twiddling would cross-pollute parallel tests.
+// Migration tests. Schema żyje w pojedynczym pliku 0001_init.sql — nie mamy
+// już historii ALTER TABLE, bo przyjęliśmy model "wyczyść bazę i puść scrape"
+// zamiast wspierać upgrade'y in-place. Te testy weryfikują jedynie że świeża
+// baza wstaje z oczekiwanym kształtem schematu i że manifest sha-file działa.
 
 import { test, afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import Database from "better-sqlite3";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-
-import Database from "better-sqlite3";
 
 import { openDatabase, closeDatabase, writeDbManifest } from "../../src/lib/db.js";
 
@@ -42,20 +37,13 @@ function listIndexes(db, table) {
   return db.prepare(`PRAGMA index_list(${table})`).all().map((r) => r.name);
 }
 
-function applyMigrationFiles(db, files) {
-  for (const file of files) {
-    db.exec(readFileSync(join(process.cwd(), "migrations", file), "utf8"));
-  }
-}
-
-test("openDatabase on a fresh file applies all migrations and bumps user_version", () => {
+test("openDatabase on a fresh file applies the schema and bumps user_version", () => {
   const db = openDatabase(dbPath);
   try {
     const version = db.pragma("user_version", { simple: true });
-    // 6 .sql files in /migrations → user_version = 6
-    assert.equal(version, 6);
+    // 1 .sql file in /migrations → user_version = 1
+    assert.equal(version, 1);
 
-    // Core tables from 0001
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all()
@@ -64,55 +52,50 @@ test("openDatabase on a fresh file applies all migrations and bumps user_version
       assert.ok(tables.includes(required), `missing table ${required}`);
     }
 
-    const runCols = listColumns(db, "scrape_runs");
-    assert.ok(runCols.includes("batch_id"), "0004 column missing: batch_id");
+    // scrape_runs should carry batch_id (used by run grouping in the UI).
+    assert.ok(listColumns(db, "scrape_runs").includes("batch_id"));
 
-    // Indexes from 0001
     const listingIndexes = listIndexes(db, "listings");
     assert.ok(
       listingIndexes.some((n) => n.includes("idx_listings_source_active")),
       "missing idx_listings_source_active",
     );
 
-    // Columns from 0002 (condition fields) on listings
+    // Condition / decrypt-redesign columns must all exist.
     const listingCols = listColumns(db, "listings");
-    for (const col of ["damaged", "no_accident", "service_record", "country_origin", "new_used"]) {
-      assert.ok(listingCols.includes(col), `0002 column missing: ${col}`);
+    for (const col of ["damaged", "no_accident", "country_origin", "new_used",
+                       "vin", "registration", "date_registration", "phones_json",
+                       "image_count", "seller_uuid"]) {
+      assert.ok(listingCols.includes(col), `listings missing column: ${col}`);
     }
+    // description_text on listings is the "one format" refactor — ensure the
+    // old denormalization column did not sneak back into the schema.
+    assert.equal(listingCols.includes("description_text"), false, "listings.description_text should not exist");
 
-    // Columns from 0003 (decrypt redesign) on listings
-    for (const col of ["vin", "registration", "date_registration", "phones_json", "image_count", "seller_uuid"]) {
-      assert.ok(listingCols.includes(col), `0003 column missing: ${col}`);
-    }
+    // listing_snapshots: opis żyje wyłącznie w payload_json.description_html,
+    // więc ani description_text, ani legacy field_map_json nie powinny
+    // istnieć jako osobne kolumny.
+    const snapCols = listColumns(db, "listing_snapshots");
+    assert.ok(snapCols.includes("payload_json"), "listing_snapshots missing payload_json");
+    assert.equal(snapCols.includes("description_text"), false, "listing_snapshots.description_text should not exist");
+    assert.equal(snapCols.includes("field_map_json"), false, "listing_snapshots.field_map_json should not exist");
   } finally {
     closeDatabase(db, dbPath);
   }
 });
 
 test("re-opening an already-migrated db is a no-op (idempotent)", () => {
-  // First open: full migration sequence runs.
   const db1 = openDatabase(dbPath);
   const v1 = db1.pragma("user_version", { simple: true });
   closeDatabase(db1, dbPath);
 
-  // Capture sha right after the first close — that's the canonical
-  // post-migration file content.
-  const shaAfterFirstClose = fileSha(dbPath);
-
-  // Second open: applyMigrations should see user_version === files.length and
-  // skip every migration. This is the "scrape runner reuses an existing db"
-  // path, exercised on every cron tick.
   const db2 = openDatabase(dbPath);
   const v2 = db2.pragma("user_version", { simple: true });
   closeDatabase(db2, dbPath);
 
   assert.equal(v2, v1, "user_version drifted on re-open");
-  // The file may have small WAL-related deltas after a clean close, but the
-  // schema (which is what we care about) shouldn't have changed. Re-open
-  // and re-close once more, then assert sha stability across two consecutive
-  // no-op cycles. WAL mode may still cause a small initial delta after the
-  // first migration, so we tolerate that and only assert from the second
-  // close onwards.
+
+  // After the second close, subsequent no-op opens must not touch bytes.
   const shaAfterSecondClose = fileSha(dbPath);
   const db3 = openDatabase(dbPath);
   closeDatabase(db3, dbPath);
@@ -140,16 +123,11 @@ test("writeDbManifest is a no-op when sha is unchanged (does not rotate the file
   const db = openDatabase(dbPath);
   closeDatabase(db, dbPath);
 
-  // First manifest is now on disk. Capture its full content + mtime, then
-  // call writeDbManifest again — since the db sha hasn't changed, the
-  // manifest must NOT be rewritten. This is the "git status stays clean
-  // when nothing changed" guarantee.
   const before = readFileSync(`${dbPath}.version.json`, "utf8");
   const result = writeDbManifest(dbPath);
   const after = readFileSync(`${dbPath}.version.json`, "utf8");
 
   assert.equal(after, before, "writeDbManifest rewrote unchanged file");
-  // Returned object still reports the cached sha so callers can read it
   assert.equal(result.sha, JSON.parse(before).sha);
 });
 
@@ -158,7 +136,6 @@ test("writeDbManifest rewrites when the underlying db sha changes", () => {
   closeDatabase(db, dbPath);
   const beforeSha = JSON.parse(readFileSync(`${dbPath}.version.json`, "utf8")).sha;
 
-  // Mutate the db: insert a row, close, refresh manifest.
   const db2 = openDatabase(dbPath);
   db2
     .prepare("INSERT INTO sources (id, site, name, url, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
@@ -171,94 +148,78 @@ test("writeDbManifest rewrites when the underlying db sha changes", () => {
   assert.equal(existsSync(walPath) ? statSync(walPath).size : 0, 0, "closeDatabase left uncheckpointed WAL bytes");
 });
 
-test("upgrading from user_version=1 (only 0001 applied) replays 0002 + 0003 + 0004", () => {
-  // Simulate an "old" db: bare 0001 schema with user_version=1. We do this by
-  // directly executing the 0001 SQL via better-sqlite3 (bypassing
-  // applyMigrations) and pinning user_version to 1. Then openDatabase() on
-  // the same path must fast-forward to user_version=6 by running 0002…0006.
+test("openDatabase fails fast on a legacy db with user_version ahead of current schema", () => {
+  // Symulujemy bazę po starszej (pre-flatten) historii migracji: user_version
+  // ustawiony na liczbę większą niż aktualna liczba plików .sql w /migrations.
+  // Naiwny applyMigrations nic by nie zrobił (bo currentVersion >= każdego
+  // targetVersion), a scrape.js wywróciłby się dopiero przy pierwszym INSERT
+  // na listing_snapshots z powodu brakującej kolumny payload_json albo
+  // obecnej legacy description_text. Guard w db.js wywraca przy OPEN, żeby
+  // błąd pojawił się natychmiast.
   const seed = new Database(dbPath);
-  seed.pragma("journal_mode = WAL");
-  applyMigrationFiles(seed, ["0001_init.sql"]);
-  seed.pragma("user_version = 1");
-
-  // Sanity: at this point listings has neither 0002 nor 0003 columns.
-  const colsBefore = listColumns(seed, "listings");
-  assert.equal(colsBefore.includes("vin"), false, "test setup broken: vin already present");
-  assert.equal(colsBefore.includes("damaged"), false, "test setup broken: damaged already present");
+  seed.exec(`
+    CREATE TABLE sources (id TEXT PRIMARY KEY);
+    CREATE TABLE listing_snapshots (
+      id TEXT PRIMARY KEY,
+      description_text TEXT,
+      payload_json TEXT NOT NULL,
+      field_map_json TEXT NOT NULL
+    );
+  `);
+  seed.pragma("user_version = 7");
   seed.close();
 
-  // Now open via the production path. Migrations 0002 and 0003 must run.
-  const db = openDatabase(dbPath);
-  try {
-    assert.equal(db.pragma("user_version", { simple: true }), 6);
-    const colsAfter = listColumns(db, "listings");
-    assert.ok(colsAfter.includes("damaged"), "0002 migration did not apply on upgrade");
-    assert.ok(colsAfter.includes("vin"), "0003 migration did not apply on upgrade");
-    assert.ok(listColumns(db, "scrape_runs").includes("batch_id"), "0004 migration did not apply on upgrade");
-  } finally {
-    closeDatabase(db, dbPath);
-  }
-
-  // Manifest must reflect the upgraded file
-  const manifest = JSON.parse(readFileSync(`${dbPath}.version.json`, "utf8"));
-  assert.equal(manifest.sha, fileSha(dbPath));
+  assert.throws(
+    () => openDatabase(dbPath),
+    /user_version=7.*migration file|Delete the database file/i,
+  );
 });
 
-test("upgrading from user_version=3 backfills legacy scrape_runs into batches", () => {
+test("openDatabase fails fast when listing_snapshots table is entirely missing", () => {
+  // Ktoś ręcznie obciął listing_snapshots (np. DROP TABLE) ale zostawił
+  // user_version na aktualnej wartości. Poprzednia iteracja guarda traktowała
+  // brak tabeli jako "fresh db, skip check" i milcząco wracała — scrape
+  // wywalał się potem na pierwszym INSERT. Teraz post-check wymaga aby
+  // tabela istniała po applyMigrations.
   const seed = new Database(dbPath);
-  seed.pragma("journal_mode = WAL");
-  applyMigrationFiles(seed, [
-    "0001_init.sql",
-    "0002_add_condition_fields.sql",
-    "0003_decrypt_redesign.sql",
-  ]);
-  seed.pragma("user_version = 3");
-  seed
-    .prepare("INSERT INTO sources (id, site, name, url, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run("source-a", "OTOMOTO", "A", "https://example.com/a", 1, "2026-04-08T07:00:00.000Z", "2026-04-08T07:00:00.000Z");
-  seed
-    .prepare("INSERT INTO sources (id, site, name, url, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run("source-b", "OTOMOTO", "B", "https://example.com/b", 1, "2026-04-08T07:00:00.000Z", "2026-04-08T07:00:00.000Z");
-
-  const insertRun = seed.prepare(
-    `INSERT INTO scrape_runs (
-       id, source_id, trigger_type, status, started_at, finished_at
-     ) VALUES (?, ?, ?, ?, ?, ?)`,
-  );
-  insertRun.run("run-1a", "source-a", "scheduled", "SUCCESS", "2026-04-08T07:27:27.968Z", "2026-04-08T07:28:40.303Z");
-  insertRun.run("run-1b", "source-b", "scheduled", "SUCCESS", "2026-04-08T07:28:40.477Z", "2026-04-08T07:35:20.110Z");
-  insertRun.run("run-2a", "source-a", "scheduled", "SUCCESS", "2026-04-08T09:04:18.605Z", "2026-04-08T09:05:50.586Z");
-  insertRun.run("run-2b", "source-b", "scheduled", "SUCCESS", "2026-04-08T09:05:50.687Z", "2026-04-08T09:10:52.290Z");
+  seed.exec(`CREATE TABLE sources (id TEXT PRIMARY KEY);`);
+  seed.pragma("user_version = 1");
   seed.close();
 
-  const db = openDatabase(dbPath);
-  try {
-    assert.equal(db.pragma("user_version", { simple: true }), 6);
-    const runs = db
-      .prepare("SELECT id, batch_id FROM scrape_runs ORDER BY started_at ASC")
-      .all();
+  assert.throws(
+    () => openDatabase(dbPath),
+    /missing the listing_snapshots table/i,
+  );
+});
 
-    assert.deepEqual(
-      runs,
-      [
-        { id: "run-1a", batch_id: "legacy-2026-04-08T07:27:27.968Z" },
-        { id: "run-1b", batch_id: "legacy-2026-04-08T07:27:27.968Z" },
-        { id: "run-2a", batch_id: "legacy-2026-04-08T09:04:18.605Z" },
-        { id: "run-2b", batch_id: "legacy-2026-04-08T09:04:18.605Z" },
-      ],
+test("openDatabase fails fast on a db with matching user_version but legacy schema columns", () => {
+  // Bardziej podstępny wariant: ktoś z zewnątrz ręcznie obciął user_version
+  // do 1 (albo uruchamiał narzędzie które to zrobiło), ale schema pod spodem
+  // jest stara. Drugi guard — schema fingerprint — musi ten przypadek
+  // wykryć niezależnie od user_version.
+  const seed = new Database(dbPath);
+  seed.exec(`
+    CREATE TABLE sources (id TEXT PRIMARY KEY);
+    CREATE TABLE listing_snapshots (
+      id TEXT PRIMARY KEY,
+      description_text TEXT,
+      payload_json TEXT NOT NULL,
+      field_map_json TEXT NOT NULL
     );
-  } finally {
-    closeDatabase(db, dbPath);
-  }
+  `);
+  seed.pragma("user_version = 1");
+  seed.close();
+
+  assert.throws(
+    () => openDatabase(dbPath),
+    /schema does not match|legacy columns/i,
+  );
 });
 
 test("openDatabase regenerates a missing manifest after closeDatabase", () => {
   const db = openDatabase(dbPath);
   closeDatabase(db, dbPath);
 
-  // Delete the manifest, then re-open + re-close. closeDatabase always
-  // refreshes the manifest, so after this cycle the file must exist again
-  // with a sha matching the db.
   rmSync(`${dbPath}.version.json`);
   const db2 = openDatabase(dbPath);
   closeDatabase(db2, dbPath);
