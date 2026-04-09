@@ -869,7 +869,15 @@ function viewListings(view, params) {
   let sellerHasKeyboardSelection = false;
 
   function getSellerMenuOptions() {
-    const terms = sellerInput.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    // Tokenizer dropdowna musi traktować `·` jako separator, nie jako literał.
+    // formatSellerLabel produkuje "Nazwa · Miasto · Region", więc jak tylko
+    // user wybierze coś z listy albo wejdzie na stronę z aktywnym scopem,
+    // input ma w sobie ten znak. Bez splitu po `·` następne otwarcie menu
+    // pokazywało "Brak pasujących sprzedawców" — bo searchText (joined
+    // spacjami) nigdy nie zawiera `·`, więc term `·` falsyfikował całe
+    // dopasowanie. Zachowujemy tokeny jedno-literowe, żeby dalej działało
+    // szybkie filtrowanie po prefiksie typu "P".
+    const terms = sellerInput.value.toLowerCase().split(/[\s·]+/).map((t) => t.trim()).filter(Boolean);
     const limit = terms.length > 0 ? 12 : 8;
     return sellerOptionGroups
       .map((seller) => {
