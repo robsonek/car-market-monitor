@@ -8,6 +8,12 @@ import assert from "node:assert/strict";
 
 import { diffFieldMaps, NOISY_FIELD_PREFIXES } from "../../src/lib/scrape.js";
 
+function makeApolloUrl(fn) {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ fn, w: [{ fn: "wg4gnqp6y1f-OTOMOTOPL", s: "16" }] })).toString("base64url");
+  return `https://ireland.apollo.olxcdn.com/v1/files/${header}.${payload}.sig/image`;
+}
+
 test("diffFieldMaps emits added/removed/modified entries sorted by key", () => {
   const previous = {
     "title": "Old title",
@@ -74,6 +80,52 @@ test("diffFieldMaps ignores value_added_services reorder-only transport noise", 
   };
 
   assert.deepEqual(diffFieldMaps(previous, next), []);
+});
+
+test("diffFieldMaps ignores ambiguous Apollo gallery URL refresh with the same count", () => {
+  const previous = {
+    "images.count": "3",
+    "images.urls": JSON.stringify([
+      makeApolloUrl("old-a-OTOMOTOPL"),
+      makeApolloUrl("old-b-OTOMOTOPL"),
+      makeApolloUrl("old-c-OTOMOTOPL"),
+    ]),
+  };
+  const next = {
+    "images.count": "3",
+    "images.urls": JSON.stringify([
+      makeApolloUrl("new-a-OTOMOTOPL"),
+      makeApolloUrl("new-b-OTOMOTOPL"),
+      makeApolloUrl("new-c-OTOMOTOPL"),
+    ]),
+  };
+
+  assert.deepEqual(diffFieldMaps(previous, next), []);
+});
+
+test("diffFieldMaps still reports real images.urls changes for stable non-Apollo URLs", () => {
+  const previous = {
+    "images.count": "2",
+    "images.urls": JSON.stringify([
+      "https://example.invalid/photo-a.jpg",
+      "https://example.invalid/photo-b.jpg",
+    ]),
+  };
+  const next = {
+    "images.count": "2",
+    "images.urls": JSON.stringify([
+      "https://example.invalid/photo-c.jpg",
+      "https://example.invalid/photo-d.jpg",
+    ]),
+  };
+
+  assert.deepEqual(diffFieldMaps(previous, next), [
+    {
+      field_name: "images.urls",
+      old_value: previous["images.urls"],
+      new_value: next["images.urls"],
+    },
+  ]);
 });
 
 test("diffFieldMaps handles empty inputs without crashing", () => {

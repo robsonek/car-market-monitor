@@ -2,6 +2,7 @@
 // Loads db/car-market-monitor.sqlite via sql.js (WASM SQLite) and renders views with hash routing.
 
 import { compactMultiLineSegments, diffLines, tokenDiffAsSegments } from "./diff.js";
+import { diffImageUrlArrays } from "../shared/image-urls.js";
 import { diffValueAddedServices, formatValueAddedServiceName } from "../shared/value-added-services.js";
 
 // sql.js (loader + wasm) jest vendoryzowany lokalnie w /web/. Cross-origin
@@ -1857,8 +1858,17 @@ function isEquivalentValueAddedServicesChange(fieldName, oldValue, newValue) {
   return diff?.equivalentAfterNormalization === true;
 }
 
+function isEquivalentImageUrlsChange(fieldName, oldValue, newValue) {
+  if (fieldName !== "images.urls") return false;
+  const diff = diffImageUrlArrays(oldValue, newValue);
+  return diff?.equivalentAfterNormalization === true;
+}
+
 function filterVisibleChanges(rows) {
-  return rows.filter((row) => !isEquivalentValueAddedServicesChange(row.field_name, row.old_value, row.new_value));
+  return rows.filter((row) =>
+    !isEquivalentValueAddedServicesChange(row.field_name, row.old_value, row.new_value) &&
+    !isEquivalentImageUrlsChange(row.field_name, row.old_value, row.new_value)
+  );
 }
 
 function renderValueAddedServiceItem(service, side) {
@@ -2018,24 +2028,67 @@ function renderDiffSide(side, ownValue, oppositeValue, fieldName, options = {}) 
 // serialization — meaning a pure reorder wouldn't even register as a change
 // in the first place, but we handle the degenerate case defensively.
 function renderImageDiffSide(side, ownValue, oppositeValue) {
-  const parseUrls = (raw) => {
-    try {
-      const v = JSON.parse(raw || "[]");
-      return Array.isArray(v) ? v.filter((u) => typeof u === "string") : [];
-    } catch {
-      return null;
-    }
-  };
-  const own = parseUrls(ownValue);
-  const opp = parseUrls(oppositeValue);
-  // If either side isn't parseable JSON array, fall back to plain text so
-  // we never render a broken view. Shouldn't happen in practice — flatten
-  // always stableStringify's arrays — but defensive.
-  if (own == null || opp == null) {
+  const diff = diffImageUrlArrays(
+    side === "old" ? ownValue : oppositeValue,
+    side === "old" ? oppositeValue : ownValue,
+  );
+  // If either side isn't parseable JSON array, fall back to plain text so we
+  // never render a broken view.
+  if (!diff) {
     return document.createTextNode(truncate(String(ownValue ?? ""), 80));
   }
-  const oppSet = new Set(opp);
-  const delta = own.filter((u) => !oppSet.has(u));
+  if (diff.equivalentAfterNormalization) {
+    return el(
+      "span",
+      { class: "muted" },
+      diff.ambiguousSignedRefresh ? "— możliwy reorder / refresh CDN" : "—",
+    );
+  }
+  // Asymmetric CDN refresh: all URLs are Apollo-signed with zero overlap,
+  // but the counter also changed. We can't identify which specific photos
+  // were newly uploaded vs just rotated, so show the full current gallery
+  // on the side with the net delta and mute the other side.
+  if (diff.asymmetricSignedRefresh) {
+    const netPositive = diff.netDelta > 0;
+    const mutedSide = netPositive ? "old" : "new";
+    if (side === mutedSide) {
+      return el(
+        "span",
+        { class: "muted" },
+        "— prawdopodobnie odświeżone przez CDN",
+      );
+    }
+    const absNet = Math.abs(diff.netDelta);
+    const wrap = el("div", { class: "image-diff" });
+    const labelText = netPositive
+      ? `+ ${absNet} netto (reszta prawdopodobnie odświeżona przez CDN)`
+      : `− ${absNet} netto (reszta prawdopodobnie odświeżona przez CDN)`;
+    wrap.appendChild(
+      el("div", { class: `image-diff-label image-diff-label--${side}` }, labelText),
+    );
+    const grid = el("div", { class: "image-grid" });
+    const thumbs = side === "old" ? diff.oldUrls : diff.newUrls;
+    for (const url of thumbs) {
+      const link = el("a", {
+        href: url,
+        target: "_blank",
+        rel: "noopener noreferrer",
+        class: "image-thumb-link",
+        title: side === "old" ? "poprzednia galeria" : "aktualna galeria",
+      },
+        el("img", {
+          src: url,
+          class: `image-thumb image-thumb--${side}`,
+          loading: "lazy",
+          alt: "",
+        }),
+      );
+      grid.appendChild(link);
+    }
+    wrap.appendChild(grid);
+    return wrap;
+  }
+  const delta = side === "old" ? diff.removed : diff.added;
   if (delta.length === 0) {
     // Nothing unique on our side — either sets are equal (shouldn't happen
     // if a change was recorded) or our side is a subset of the opposite.

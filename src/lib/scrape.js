@@ -6,6 +6,7 @@ import {
   scrapeMarketplaceListingCards,
 } from "./marketplace-source.js";
 import { PARAM_COLUMNS } from "./marketplace-source-params.js";
+import { diffImageUrlArrays } from "../../shared/image-urls.js";
 import { diffValueAddedServices } from "../../shared/value-added-services.js";
 import { HttpError, flattenForDiff, nowIso, randomId, sha256Hex, sleep, stableStringify } from "./utils.js";
 
@@ -828,6 +829,10 @@ export { computeSnapshotHash, diffFieldMaps, isNoisyFieldKey, NOISY_FIELD_PREFIX
 
 function areFieldValuesEquivalent(fieldName, oldValue, newValue) {
   if (oldValue === newValue) return true;
+  if (fieldName === "images.urls") {
+    const diff = diffImageUrlArrays(oldValue, newValue);
+    return diff?.equivalentAfterNormalization === true;
+  }
   if (fieldName === "value_added_services") {
     const diff = diffValueAddedServices(oldValue, newValue);
     return diff?.equivalentAfterNormalization === true;
