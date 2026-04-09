@@ -772,16 +772,32 @@ function viewListings(view, params) {
      GROUP BY seller_uuid, seller_name, seller_location_city, seller_location_region
      ORDER BY lower(COALESCE(seller_name, '')), lower(COALESCE(seller_location_city, '')), lower(COALESCE(seller_location_region, ''))`,
   );
-  const sellerScope = params.sellerUuid
-    ? query(
-      state.db,
-      `SELECT seller_uuid, seller_name, seller_location_city, seller_location_region
-       FROM listings
-       WHERE seller_uuid = ?
-       ORDER BY last_seen_at DESC
-       LIMIT 1`,
-      [params.sellerUuid],
-    )[0] || { seller_uuid: params.sellerUuid }
+  // Scope filtra sprzedawcy może być pojedynczym UUID-em (klasyczna ścieżka
+  // z kliknięcia "Zobacz oferty sprzedawcy") albo listą UUID-ów oddzielonych
+  // przecinkami (gdy ten sam brand — np. "Porsche Centrum Kraków" —
+  // występuje w danych pod kilkoma seller_uuid, co w otomoto zdarza się
+  // np. dla oddzielnych osób prawnych pod tym samym szyldem). Internal
+  // reprezentacja to zawsze tablica — ścieżka jedno-UUID jest po prostu
+  // specialcase'em z length===1.
+  const sellerUuidList = params.sellerUuids
+    ? params.sellerUuids.split(",").map((s) => s.trim()).filter(Boolean)
+    : (params.sellerUuid ? [params.sellerUuid] : []);
+  const sellerScope = sellerUuidList.length > 0
+    ? {
+        seller_uuids: sellerUuidList,
+        // Etykietę bierzemy z dowolnego listingu w scopie — wszystkie wiersze
+        // w tej samej grupie (name + city + region) dzielą te same wartości
+        // tekstowe, więc wystarczy pierwsza pasująca.
+        ...(query(
+          state.db,
+          `SELECT seller_uuid, seller_name, seller_location_city, seller_location_region
+           FROM listings
+           WHERE seller_uuid IN (${sellerUuidList.map(() => "?").join(",")})
+           ORDER BY last_seen_at DESC
+           LIMIT 1`,
+          sellerUuidList,
+        )[0] || { seller_uuid: sellerUuidList[0] }),
+      }
     : null;
   const sellerOptions = sellers.map((seller) => ({
     ...seller,
@@ -812,7 +828,9 @@ function viewListings(view, params) {
   );
   const sellerOptionByLabel = new Map(sellerOptionGroups.map((seller) => [seller.label.toLowerCase(), seller]));
   const sellerFilterParams = sellerScope
-    ? { sellerUuid: sellerScope.seller_uuid }
+    ? (sellerScope.seller_uuids.length === 1
+        ? { sellerUuid: sellerScope.seller_uuids[0] }
+        : { sellerUuids: sellerScope.seller_uuids.join(",") })
     : params.sellerQuery
       ? { sellerQuery: params.sellerQuery }
       : {};
@@ -1104,8 +1122,20 @@ function viewListings(view, params) {
     const sellerValue = sellerInput.value.trim();
     if (sellerValue) {
       const exactSeller = sellerOptionByLabel.get(sellerValue.toLowerCase());
-      if (exactSeller?.seller_uuids?.length === 1) next.sellerUuid = exactSeller.seller_uuids[0];
-      else next.sellerQuery = exactSeller?.label || sellerValue;
+      // Exact-label match: używamy stabilnego UUID filtra zamiast
+      // tekstowego LIKE'a. Jeśli ten sam brand ma kilka seller_uuid
+      // (zdarza się, np. różne osoby prawne pod jednym szyldem), pakujemy
+      // wszystkie w przecinkową listę — SQL niżej robi z tego `IN (...)`.
+      if (exactSeller?.seller_uuids?.length === 1) {
+        next.sellerUuid = exactSeller.seller_uuids[0];
+      } else if (exactSeller?.seller_uuids?.length > 1) {
+        next.sellerUuids = exactSeller.seller_uuids.join(",");
+      } else {
+        // Brak exact matcha → free-text fallback. NIE zapisujemy tutaj
+        // formatted labela (który zawiera " · " separator zabijający
+        // tekstową tokenizację w SQL), tylko surowe wpisanie użytkownika.
+        next.sellerQuery = sellerValue;
+      }
     }
     navigate("#/listings", next);
   }
@@ -1113,9 +1143,27 @@ function viewListings(view, params) {
   // Build SQL
   const where = ["1=1"];
   const args = [];
-  if (sellerScope) { where.push("l.seller_uuid = ?"); args.push(sellerScope.seller_uuid); }
+  if (sellerScope) {
+    if (sellerScope.seller_uuids.length === 1) {
+      where.push("l.seller_uuid = ?");
+      args.push(sellerScope.seller_uuids[0]);
+    } else {
+      const placeholders = sellerScope.seller_uuids.map(() => "?").join(",");
+      where.push(`l.seller_uuid IN (${placeholders})`);
+      args.push(...sellerScope.seller_uuids);
+    }
+  }
   if (params.sellerQuery) {
-    const sellerTerms = params.sellerQuery.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    // Tokenizer: whitespace split + odfiltrowanie separatorów etykietowych
+    // typu `·`, które formatSellerLabel wkleja między imię/miasto/region.
+    // Bez tego filtra "Porsche Centrum Kraków · Kraków" produkuje token `·`
+    // który nie matchuje niczego i zeruje cały wynik. Jednocyfrowe tokeny
+    // też odcinamy — za mało specyficzne, żeby pomagały w wyszukiwaniu.
+    const sellerTerms = params.sellerQuery
+      .toLowerCase()
+      .split(/[\s·]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 2);
     for (const term of sellerTerms) {
       where.push("(lower(COALESCE(l.seller_name, '')) LIKE ? OR lower(COALESCE(l.seller_location_city, '')) LIKE ? OR lower(COALESCE(l.seller_location_region, '')) LIKE ?)");
       const pat = `%${term}%`;

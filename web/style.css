@@ -606,9 +606,15 @@ button.secondary {
 .timeline .diff-arrow { color: var(--muted); font-size: 13px; padding-top: 2px; }
 
 /* Seller description panel. Renderowany jest sanitizowany HTML z
-   payload_json.description_html (phone tokeny rozwiązane przy ingest'cie). */
+   payload_json.description_html (phone tokeny rozwiązane przy ingest'cie).
+   white-space: pre-wrap jest kluczowe: otomoto zwraca opisy jako mieszankę
+   inline tagów (`<b>`) i gołych `\n` newlines zamiast `<p>`/`<br>`. Bez
+   pre-wrap HTML collapse'uje newlines do pojedynczej spacji i user widzi
+   jedną ścianę tekstu. Z pre-wrap każdy `\n` w text node renderuje się jako
+   linia, inline tagi formatowania dalej działają normalnie. */
 .description-body {
   padding: 14px 16px;
+  white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
   font-size: 13px;
