@@ -820,8 +820,19 @@ function isNoisyFieldKey(key) {
 // and only filtered in `diffFieldMaps`, which produced exactly that mismatch.
 export { computeSnapshotHash, diffFieldMaps, isNoisyFieldKey, NOISY_FIELD_PREFIXES };
 
+function normalizeImageUrlsField(value) {
+  try {
+    const urls = JSON.parse(value || "[]");
+    if (Array.isArray(urls)) return JSON.stringify([...urls].sort());
+  } catch {}
+  return value;
+}
+
 function areFieldValuesEquivalent(fieldName, oldValue, newValue) {
   if (oldValue === newValue) return true;
+  if (fieldName === "images.urls") {
+    return normalizeImageUrlsField(oldValue) === normalizeImageUrlsField(newValue);
+  }
   if (fieldName === "value_added_services") {
     const diff = diffValueAddedServices(oldValue, newValue);
     return diff?.equivalentAfterNormalization === true;
@@ -833,7 +844,7 @@ function computeSnapshotHash(detail) {
   const filtered = {};
   for (const [key, value] of Object.entries(detail.field_map || {})) {
     if (isNoisyFieldKey(key)) continue;
-    filtered[key] = value;
+    filtered[key] = key === "images.urls" ? normalizeImageUrlsField(value) : value;
   }
   return sha256Hex(stableStringify(filtered));
 }
