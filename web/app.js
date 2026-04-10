@@ -193,7 +193,7 @@ function updateWatchlistNav() {
   const link = document.querySelector("[data-watchlist-link]");
   if (!link) return;
   const count = state.watchlistEntries.length;
-  link.textContent = count > 0 ? `Obserwowane (${count})` : "Obserwowane";
+  link.textContent = count > 0 ? `Watchlist (${count})` : "Watchlist";
 }
 
 function syncWatchToggleButton(button, watched, options = {}) {
@@ -1484,18 +1484,11 @@ function viewListings(view, params) {
 }
 
 function viewWatchlist(view) {
-  view.appendChild(el("h1", {}, "Obserwowane"));
+  view.appendChild(el("h1", {}, "Watchlist"));
 
   const entries = state.watchlistEntries;
   if (entries.length === 0) {
     view.appendChild(el("p", { class: "empty" }, "Nie obserwujesz jeszcze żadnych ogłoszeń."));
-    view.appendChild(
-      el(
-        "div",
-        { class: "watchlist-actions" },
-        el("button", { type: "button", class: "secondary", onclick: () => navigate("#/listings") }, "Przejdź do listy ogłoszeń"),
-      ),
-    );
     return;
   }
 
@@ -2597,7 +2590,12 @@ function renderPhoneList(numbers) {
 function renderSparkline(series, width, height) {
   // SVG with line + dots + min/max labels.
   if (series.length < 2) return el("p", { class: "empty" }, "Brak danych.");
-  const padX = 40;
+  const yMaxLabel = formatPrice(Math.max(...series.map((p) => p.v)));
+  const yMinLabel = formatPrice(Math.min(...series.map((p) => p.v)));
+  // Left gutter must fit the widest PLN label; otherwise the first point/line
+  // sits on top of the text (visible for short series with a high first point).
+  const padLeft = Math.max(72, Math.min(width * 0.26, Math.max(yMaxLabel.length, yMinLabel.length) * 8 + 16));
+  const padRight = 20;
   const padY = 16;
   const xs = series.map((p) => p.t);
   const ys = series.map((p) => p.v);
@@ -2607,7 +2605,7 @@ function renderSparkline(series, width, height) {
   const yMax = Math.max(...ys);
   const xRange = xMax - xMin || 1;
   const yRange = yMax - yMin || 1;
-  const sx = (t) => padX + ((t - xMin) / xRange) * (width - padX * 2);
+  const sx = (t) => padLeft + ((t - xMin) / xRange) * (width - padLeft - padRight);
   const sy = (v) => height - padY - ((v - yMin) / yRange) * (height - padY * 2);
 
   const path = series.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.t).toFixed(1)},${sy(p.v).toFixed(1)}`).join(" ");
@@ -2615,8 +2613,8 @@ function renderSparkline(series, width, height) {
 
   const svg = `
     <svg class="sparkline" viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet">
-      <text x="4" y="${(padY + 4).toFixed(0)}" font-size="11" fill="#6b7280">${formatPrice(yMax)}</text>
-      <text x="4" y="${height - 4}" font-size="11" fill="#6b7280">${formatPrice(yMin)}</text>
+      <text x="8" y="${(padY + 4).toFixed(0)}" font-size="11" fill="#6b7280">${yMaxLabel}</text>
+      <text x="8" y="${height - 4}" font-size="11" fill="#6b7280">${yMinLabel}</text>
       <path d="${path}" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
       ${dots}
     </svg>
