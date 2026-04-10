@@ -420,12 +420,7 @@ async function normalizeDetail(advert, card) {
     parameters,
     images: {
       count: imageCount,
-      // URLs sorted lexicographically so a seller drag-dropping photo order
-      // in the source editor doesn't show up as a diff — we only care
-      // about adds/removes, not position. flattenForDiff otherwise preserves
-      // array order which would generate a noise change on every reorder.
-      // Trade-off: payload loses "which photo is the cover" info, acceptable.
-      urls: (advert.images?.photos || []).map((item) => item.url).sort(),
+      urls: (advert.images?.photos || []).map((item) => item.url),
     },
     phone_tokens: advert.phoneNumbers || [],
     // Materialized values used by the UI and diff pipeline.
