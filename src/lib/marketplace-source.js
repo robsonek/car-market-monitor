@@ -19,6 +19,9 @@ const PAGINATION_SAFETY_MARGIN = 2;
 const PAGINATION_HARD_CAP = 100;
 // Delay between consecutive page fetches to avoid upstream rate limiting.
 const PAGINATION_DELAY_MS = 500;
+const FETCH_MAX_RETRIES = 2;
+const FETCH_RETRY_DELAY_MS = 2000;
+const FETCH_RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 export function detectSite(url) {
   const parsed = new URL(url);
@@ -144,10 +147,7 @@ function extractInlinePhoneTokens(html) {
   return out;
 }
 
-async function fetchHtml(fetchImpl, url) {
-  // The same AbortController must cover both the fetch() handshake AND the
-  // body read — otherwise an upstream that drips bytes forever bypasses the
-  // timeout entirely. We only clear the timer in `finally` once text() returns.
+async function fetchHtmlOnce(fetchImpl, url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -179,6 +179,20 @@ async function fetchHtml(fetchImpl, url) {
     throw error;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function fetchHtml(fetchImpl, url) {
+  for (let attempt = 1; attempt <= FETCH_MAX_RETRIES + 1; attempt++) {
+    try {
+      return await fetchHtmlOnce(fetchImpl, url);
+    } catch (error) {
+      const retryable = error instanceof HttpError && FETCH_RETRYABLE_STATUSES.has(error.status);
+      if (!retryable || attempt > FETCH_MAX_RETRIES) throw error;
+      const delay = FETCH_RETRY_DELAY_MS * attempt;
+      console.log(`[fetch] HTTP ${error.status} for ${url} — retry ${attempt}/${FETCH_MAX_RETRIES} in ${delay}ms`);
+      await sleep(delay);
+    }
   }
 }
 
