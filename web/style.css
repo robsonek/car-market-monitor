@@ -904,6 +904,10 @@ body.gallery-lightbox-open {
   overflow: hidden;
 }
 
+.gallery-lightbox[hidden] {
+  display: none;
+}
+
 .gallery-lightbox {
   position: fixed;
   inset: 0;
