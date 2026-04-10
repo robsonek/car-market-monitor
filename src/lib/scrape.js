@@ -130,9 +130,17 @@ export async function runSource(
   );
 
   const detailLimit = pLimit(DETAIL_CONCURRENCY);
+  let detailDone = 0;
   const detailResults = await Promise.all(
     cards.map((card) =>
-      detailLimit(() => fetchDetailWithRetry(card, label, logger, { fetchImpl, retryBaseDelayMs })),
+      detailLimit(async () => {
+        const result = await fetchDetailWithRetry(card, label, logger, { fetchImpl, retryBaseDelayMs });
+        detailDone += 1;
+        if (detailDone % 50 === 0 || detailDone === cards.length) {
+          logger.log(`[${label}] detail progress: ${detailDone}/${cards.length}`);
+        }
+        return result;
+      }),
     ),
   );
 
