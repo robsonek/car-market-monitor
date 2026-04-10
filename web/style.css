@@ -863,15 +863,14 @@ button.secondary {
    opens an in-app lightbox with keyboard navigation instead of throwing the
    user into a raw CDN tab. */
 .listing-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
   padding: 14px 16px;
 }
 .gallery-item {
   display: block;
-  width: 100%;
-  aspect-ratio: 4 / 3;
   overflow: hidden;
   border-radius: 6px;
   background: var(--input-bg);
@@ -894,9 +893,6 @@ button.secondary {
     0 4px 12px rgba(0, 0, 0, 0.15);
 }
 .gallery-item img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
   display: block;
 }
 
@@ -913,26 +909,23 @@ body.gallery-lightbox-open {
   inset: 0;
   z-index: 100;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
   background: rgba(15, 23, 42, 0.78);
   backdrop-filter: blur(8px);
 }
 
 .gallery-lightbox-dialog {
-  width: min(1180px, 100%);
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 18px;
-  border-radius: 20px;
-  border: 1px solid var(--border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 100%),
-    var(--panel);
-  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.4);
+  gap: 12px;
+  padding: 12px;
+  border-radius: 0;
+  border: none;
+  background: transparent;
 }
 
 .gallery-lightbox-topbar {
@@ -980,16 +973,12 @@ body.gallery-lightbox-open {
 }
 
 .gallery-lightbox-frame {
-  height: min(72vh, 820px);
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background:
-    radial-gradient(circle at top, rgba(37, 99, 235, 0.08), transparent 48%),
-    var(--bg);
 }
 
 .gallery-lightbox-image {
@@ -1037,7 +1026,7 @@ body.gallery-lightbox-open {
 .gallery-lightbox-strip {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(88px, 96px);
+  grid-auto-columns: minmax(64px, 72px);
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 4px;
@@ -1300,10 +1289,7 @@ body.gallery-lightbox-open {
   }
   .timeline .diff-arrow { display: none; }
 
-  /* Listing detail gallery: smaller tile minimum so two columns fit on
-     a 350px screen (180px was forcing single-column). */
   .listing-gallery {
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     padding: 10px 12px;
     gap: 6px;
   }
@@ -1312,9 +1298,8 @@ body.gallery-lightbox-open {
     padding: 12px;
   }
   .gallery-lightbox-dialog {
-    gap: 12px;
-    padding: 12px;
-    border-radius: 16px;
+    padding: 8px;
+    gap: 8px;
   }
   .gallery-lightbox-stage {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1325,7 +1310,6 @@ body.gallery-lightbox-open {
   }
   .gallery-lightbox-frame {
     grid-area: frame;
-    height: min(58vh, 440px);
   }
   .gallery-lightbox-nav-prev {
     grid-area: prev;
@@ -1336,7 +1320,7 @@ body.gallery-lightbox-open {
     justify-self: end;
   }
   .gallery-lightbox-strip {
-    grid-auto-columns: minmax(72px, 82px);
+    grid-auto-columns: minmax(56px, 64px);
   }
 
   /* Cards: drop the 220px minimum so two metric cards can sit side by

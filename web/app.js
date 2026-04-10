@@ -396,7 +396,7 @@ function initGalleryLightbox() {
       "aria-label": "Zamknij galerię",
       onclick: () => closeGalleryLightbox(),
     },
-    "Zamknij",
+    "✕",
   );
   const image = el("img", { class: "gallery-lightbox-image", alt: "" });
   const prevButton = el(
