@@ -885,17 +885,32 @@ button.secondary {
   margin-bottom: 16px;
 }
 
+.detail-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.detail-title-row h1 {
+  margin: 0;
+}
+.detail-title-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+a.watch-toggle {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
 .detail-header .meta {
   display: flex;
   gap: 16px;
   font-size: 13px;
   color: var(--muted);
   flex-wrap: wrap;
-}
-.detail-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 .watchlist-actions {
   display: flex;

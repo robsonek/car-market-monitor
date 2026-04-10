@@ -1548,19 +1548,23 @@ function viewWatchlist(view) {
       el("th", { class: "num" }, "KM"),
       el("th", { class: "num" }, "Cena"),
       el("th", {}, "Last seen"),
-      el("th", {}, "Obserwuj"),
+      el("th", {}, ""),
       el("th", {}, ""),
     ),
   ));
   const tbody = el("tbody");
   for (const row of rows) {
     const watchedAt = watchedAtByKey.get(watchlistEntryKey(row.source_id, row.external_id));
-    const watchToggle = createWatchToggleButton(row, {
-      compact: true,
-      onChange: (watched) => {
-        if (!watched) route();
+    const removeBtn = el("button", {
+      type: "button",
+      class: "secondary watch-toggle-compact",
+      title: "Usuń z obserwowanych",
+      onclick: (event) => {
+        event.stopPropagation();
+        setListingWatched(row, false);
+        route();
       },
-    });
+    }, "Usuń");
     tbody.appendChild(el("tr", {
       onclick: (event) => {
         if (event.target.closest("a, button")) return;
@@ -1576,7 +1580,7 @@ function viewWatchlist(view) {
     el("td", { class: "num" }, row.engine_power != null ? `${row.engine_power}` : "—"),
     el("td", { class: "num" }, formatPrice(row.last_price_amount)),
     el("td", { class: "muted tabular" }, formatRelative(row.last_seen_at)),
-    el("td", {}, watchToggle),
+    el("td", {}, removeBtn),
     el("td", {}, el("a", { href: row.listing_url, target: "_blank", rel: "noopener" }, "link ↗")),
     ));
   }
@@ -1606,7 +1610,13 @@ function viewListingDetail(view, id) {
   view.appendChild(el(
     "div", { class: "detail-header" },
     el("div", {},
-      el("h1", {}, listing.title || listing.external_id),
+      el("div", { class: "detail-title-row" },
+        el("h1", {}, listing.title || listing.external_id),
+        el("div", { class: "detail-title-actions" },
+          detailWatchToggle,
+          el("a", { href: listing.listing_url, target: "_blank", rel: "noopener", class: "secondary watch-toggle" }, "Otwórz ofertę ↗"),
+        ),
+      ),
       el("div", { class: "meta" },
         activeBadge(listing.is_active),
         el("span", {}, `źródło: ${listing.source_name}`),
@@ -1614,10 +1624,8 @@ function viewListingDetail(view, id) {
         sellerLabel ? el("span", {}, sellerLabel) : null,
         sellerListingsHref ? el("a", { href: sellerListingsHref }, "Wszystkie oferty sprzedawcy") : null,
         el("span", {}, `external id: ${listing.external_id}`),
-        el("a", { href: listing.listing_url, target: "_blank", rel: "noopener" }, "Otwórz ofertę ↗"),
       ),
     ),
-    detailWatchToggle ? el("div", { class: "detail-actions" }, detailWatchToggle) : null,
   ));
 
   // Najważniejsze meta jako stat cards. Pierwszy rząd to standardowe price/year/mileage,
