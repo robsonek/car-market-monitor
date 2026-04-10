@@ -859,10 +859,9 @@ button.secondary {
   background: var(--input-bg);
 }
 
-/* Listing detail gallery: responsive grid of 4:3 thumbnails. Clicking any
-   tile opens the full-res marketplace CDN URL in a new tab. No lightbox yet —
-   that would need a modal with focus trap, keyboard nav, backdrop close,
-   etc., which is a separate chunk of work. */
+/* Listing detail gallery: responsive grid of 4:3 thumbnails. Clicking a tile
+   opens an in-app lightbox with keyboard navigation instead of throwing the
+   user into a raw CDN tab. */
 .listing-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -871,11 +870,15 @@ button.secondary {
 }
 .gallery-item {
   display: block;
+  width: 100%;
   aspect-ratio: 4 / 3;
   overflow: hidden;
   border-radius: 6px;
   background: var(--input-bg);
   border: 1px solid var(--border);
+  padding: 0;
+  appearance: none;
+  cursor: zoom-in;
   transition: transform 0.2s, box-shadow 0.2s;
 }
 .gallery-item:hover {
@@ -883,11 +886,184 @@ button.secondary {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   border-color: var(--accent);
 }
+.gallery-item:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 3px var(--accent-bg),
+    0 4px 12px rgba(0, 0, 0, 0.15);
+}
 .gallery-item img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+body.gallery-lightbox-open {
+  overflow: hidden;
+}
+
+.gallery-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(8px);
+}
+
+.gallery-lightbox-dialog {
+  width: min(1180px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 100%),
+    var(--panel);
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.4);
+}
+
+.gallery-lightbox-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.gallery-lightbox-counter {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.gallery-lightbox-close,
+.gallery-lightbox-nav,
+.gallery-lightbox-thumb {
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.gallery-lightbox-close,
+.gallery-lightbox-nav {
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.gallery-lightbox-close {
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.gallery-lightbox-stage {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 0;
+}
+
+.gallery-lightbox-frame {
+  height: min(72vh, 820px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(circle at top, rgba(37, 99, 235, 0.08), transparent 48%),
+    var(--bg);
+}
+
+.gallery-lightbox-image {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+}
+
+.gallery-lightbox-nav {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.gallery-lightbox-close:hover,
+.gallery-lightbox-nav:not(:disabled):hover,
+.gallery-lightbox-thumb:hover {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+.gallery-lightbox-nav:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.gallery-lightbox-close:focus-visible,
+.gallery-lightbox-nav:focus-visible,
+.gallery-lightbox-thumb:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.gallery-lightbox-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.gallery-lightbox-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(88px, 96px);
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.gallery-lightbox-thumb {
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.gallery-lightbox-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gallery-lightbox-thumb:hover {
+  opacity: 1;
+}
+
+.gallery-lightbox-thumb.is-active {
+  opacity: 1;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+  transform: translateY(-1px);
 }
 
 .detail-header {
@@ -1125,6 +1301,37 @@ button.secondary {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     padding: 10px 12px;
     gap: 6px;
+  }
+
+  .gallery-lightbox {
+    padding: 12px;
+  }
+  .gallery-lightbox-dialog {
+    gap: 12px;
+    padding: 12px;
+    border-radius: 16px;
+  }
+  .gallery-lightbox-stage {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "frame frame"
+      "prev next";
+    gap: 10px;
+  }
+  .gallery-lightbox-frame {
+    grid-area: frame;
+    height: min(58vh, 440px);
+  }
+  .gallery-lightbox-nav-prev {
+    grid-area: prev;
+    justify-self: start;
+  }
+  .gallery-lightbox-nav-next {
+    grid-area: next;
+    justify-self: end;
+  }
+  .gallery-lightbox-strip {
+    grid-auto-columns: minmax(72px, 82px);
   }
 
   /* Cards: drop the 220px minimum so two metric cards can sit side by

@@ -26,6 +26,7 @@ const state = {
   db: null,
   sizeBytes: 0,
   watchlistEntries: [],
+  galleryLightbox: null,
 };
 
 // ---------- bootstrap ----------
@@ -97,6 +98,7 @@ function stripHtml(html) {
 async function init() {
   initTheme();
   syncWatchlistStateFromStorage();
+  initGalleryLightbox();
   try {
     const loaded = await loadDb();
     state.db = loaded.db;
@@ -275,6 +277,203 @@ function clearView() {
   return view;
 }
 
+function normalizeGalleryIndex(index, length) {
+  if (length <= 0) return 0;
+  const value = Number(index);
+  if (!Number.isFinite(value)) return 0;
+  return ((Math.trunc(value) % length) + length) % length;
+}
+
+function renderGalleryLightbox() {
+  const lightbox = state.galleryLightbox;
+  if (!lightbox) return;
+  const total = lightbox.urls.length;
+  if (total === 0) {
+    closeGalleryLightbox({ restoreFocus: false });
+    return;
+  }
+
+  lightbox.index = normalizeGalleryIndex(lightbox.index, total);
+  const currentUrl = lightbox.urls[lightbox.index];
+  lightbox.counter.textContent = `${lightbox.index + 1} / ${total}`;
+  lightbox.image.src = currentUrl;
+  lightbox.image.alt = `Zdjęcie ${lightbox.index + 1} z ${total}`;
+  const singleImage = total === 1;
+  lightbox.prevButton.disabled = singleImage;
+  lightbox.nextButton.disabled = singleImage;
+  lightbox.strip.innerHTML = "";
+
+  for (const [index, url] of lightbox.urls.entries()) {
+    const thumbButton = el(
+      "button",
+      {
+        type: "button",
+        class: `gallery-lightbox-thumb${index === lightbox.index ? " is-active" : ""}`,
+        "aria-label": `Pokaż zdjęcie ${index + 1}`,
+        "aria-current": index === lightbox.index ? "true" : null,
+        onclick: () => showGalleryLightboxImage(index),
+      },
+      el("img", { src: url, loading: "lazy", alt: "" }),
+    );
+    lightbox.strip.appendChild(thumbButton);
+  }
+
+  const activeThumb = lightbox.strip.querySelector(".gallery-lightbox-thumb.is-active");
+  if (activeThumb) activeThumb.scrollIntoView({ block: "nearest", inline: "center" });
+}
+
+function showGalleryLightboxImage(index) {
+  const lightbox = state.galleryLightbox;
+  if (!lightbox || lightbox.urls.length === 0) return;
+  lightbox.index = normalizeGalleryIndex(index, lightbox.urls.length);
+  renderGalleryLightbox();
+}
+
+function shiftGalleryLightbox(delta) {
+  const lightbox = state.galleryLightbox;
+  if (!lightbox || lightbox.urls.length <= 1) return;
+  lightbox.index = normalizeGalleryIndex(lightbox.index + delta, lightbox.urls.length);
+  renderGalleryLightbox();
+}
+
+function openGalleryLightbox(urls, index = 0, trigger = null) {
+  if (!Array.isArray(urls) || urls.length === 0) return;
+  const lightbox = initGalleryLightbox();
+  lightbox.urls = urls.slice();
+  lightbox.index = normalizeGalleryIndex(index, lightbox.urls.length);
+  lightbox.lastFocused =
+    trigger instanceof HTMLElement
+      ? trigger
+      : (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  renderGalleryLightbox();
+  lightbox.overlay.hidden = false;
+  lightbox.overlay.setAttribute("aria-hidden", "false");
+  document.body.classList.add("gallery-lightbox-open");
+  lightbox.closeButton.focus();
+}
+
+function closeGalleryLightbox(options = {}) {
+  const lightbox = state.galleryLightbox;
+  if (!lightbox || lightbox.overlay.hidden) return;
+  lightbox.overlay.hidden = true;
+  lightbox.overlay.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("gallery-lightbox-open");
+  const lastFocused = lightbox.lastFocused;
+  lightbox.lastFocused = null;
+  if (options.restoreFocus !== false && lastFocused && document.contains(lastFocused)) {
+    lastFocused.focus();
+  }
+}
+
+function handleGalleryLightboxKeydown(event) {
+  const lightbox = state.galleryLightbox;
+  if (!lightbox || lightbox.overlay.hidden) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeGalleryLightbox();
+    return;
+  }
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    shiftGalleryLightbox(-1);
+    return;
+  }
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    shiftGalleryLightbox(1);
+  }
+}
+
+function initGalleryLightbox() {
+  if (state.galleryLightbox) return state.galleryLightbox;
+
+  const counter = el("div", { class: "gallery-lightbox-counter", "aria-live": "polite" });
+  const closeButton = el(
+    "button",
+    {
+      type: "button",
+      class: "gallery-lightbox-close",
+      "aria-label": "Zamknij galerię",
+      onclick: () => closeGalleryLightbox(),
+    },
+    "Zamknij",
+  );
+  const image = el("img", { class: "gallery-lightbox-image", alt: "" });
+  const prevButton = el(
+    "button",
+    {
+      type: "button",
+      class: "gallery-lightbox-nav gallery-lightbox-nav-prev",
+      "aria-label": "Poprzednie zdjęcie",
+      onclick: () => shiftGalleryLightbox(-1),
+    },
+    "‹",
+  );
+  const nextButton = el(
+    "button",
+    {
+      type: "button",
+      class: "gallery-lightbox-nav gallery-lightbox-nav-next",
+      "aria-label": "Następne zdjęcie",
+      onclick: () => shiftGalleryLightbox(1),
+    },
+    "›",
+  );
+  const strip = el("div", {
+    class: "gallery-lightbox-strip",
+    "aria-label": "Miniatury galerii",
+  });
+  const dialog = el(
+    "div",
+    {
+      class: "gallery-lightbox-dialog",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": "Galeria zdjęć",
+      onclick: (event) => event.stopPropagation(),
+    },
+    el(
+      "div",
+      { class: "gallery-lightbox-topbar" },
+      counter,
+      closeButton,
+    ),
+    el(
+      "div",
+      { class: "gallery-lightbox-stage" },
+      prevButton,
+      el("div", { class: "gallery-lightbox-frame" }, image),
+      nextButton,
+    ),
+    strip,
+  );
+  const overlay = el("div", {
+    class: "gallery-lightbox",
+    hidden: "hidden",
+    "aria-hidden": "true",
+    onclick: (event) => {
+      if (event.target === overlay) closeGalleryLightbox();
+    },
+  }, dialog);
+
+  document.addEventListener("keydown", handleGalleryLightboxKeydown);
+  document.body.appendChild(overlay);
+
+  state.galleryLightbox = {
+    overlay,
+    counter,
+    closeButton,
+    image,
+    prevButton,
+    nextButton,
+    strip,
+    urls: [],
+    index: 0,
+    lastFocused: null,
+  };
+  return state.galleryLightbox;
+}
+
 // ---------- formatters ----------
 
 function formatBytes(n) {
@@ -405,6 +604,7 @@ function navigate(path, params = {}) {
 
 function route() {
   if (!state.db) return;
+  closeGalleryLightbox({ restoreFocus: false });
   const { path, params } = parseHash();
   highlightNav(path);
   const view = clearView();
@@ -1665,8 +1865,8 @@ function viewListingDetail(view, id) {
   // Lazy parse — snapshot payload_json is ~26 KB and we want to skip the parse
   // for listings that don't have a snapshot yet (card-only placeholders after
   // a failed detail fetch). Renders a responsive CSS grid of 4:3 thumbnails,
-  // click opens full-res in a new tab. No lightbox — simplest path that doesn't
-  // require any modal/focus-trap UX work.
+  // klik otwiera lightbox wewnątrz aplikacji zamiast wysyłać usera do nowej
+  // karty z CDN-em marketplace'u.
   const lastSnapshot = listing.last_snapshot_id
     ? query(state.db, "SELECT payload_json FROM listing_snapshots WHERE id = ?", [listing.last_snapshot_id])[0]
     : null;
@@ -1684,18 +1884,19 @@ function viewListingDetail(view, id) {
     const galleryPanel = el("div", { class: "panel" });
     galleryPanel.appendChild(el("div", { class: "panel-header" }, `Zdjęcia (${galleryUrls.length})`));
     const grid = el("div", { class: "listing-gallery" });
-    for (const url of galleryUrls) {
-      grid.appendChild(
-        el("a", {
-          href: url,
-          target: "_blank",
-          rel: "noopener noreferrer",
+    for (const [index, url] of galleryUrls.entries()) {
+      const thumbButton = el(
+        "button",
+        {
+          type: "button",
           class: "gallery-item",
-          title: "Otwórz pełny rozmiar",
+          title: `Otwórz galerię (${index + 1} / ${galleryUrls.length})`,
+          "aria-label": `Otwórz galerię, zdjęcie ${index + 1} z ${galleryUrls.length}`,
+          onclick: () => openGalleryLightbox(galleryUrls, index, thumbButton),
         },
-          el("img", { src: url, loading: "lazy", alt: "" }),
-        ),
+        el("img", { src: url, loading: "lazy", alt: "" }),
       );
+      grid.appendChild(thumbButton);
     }
     galleryPanel.appendChild(grid);
     view.appendChild(galleryPanel);
