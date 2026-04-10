@@ -239,15 +239,15 @@ test("normalizeDetail survives one undecryptable inline phone token without corr
   assert.deepEqual(anchorOrder, ["+48111111111", "+48222222222"], "anchor order desynced from token order");
 });
 
-test("normalizeDetail sorts image URLs lexicographically", async () => {
+test("normalizeDetail preserves original image URL order", async () => {
   const advert = await buildSyntheticAdvert();
   const detail = await normalizeDetail(advert, FAKE_CARD);
 
   assert.equal(detail.image_count, 3);
   assert.deepEqual(detail.payload.images.urls, [
+    "https://example.invalid/photo-c.jpg",
     "https://example.invalid/photo-a.jpg",
     "https://example.invalid/photo-b.jpg",
-    "https://example.invalid/photo-c.jpg",
   ]);
 });
 
