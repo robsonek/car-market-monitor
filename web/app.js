@@ -1373,7 +1373,7 @@ function viewListings(view, params) {
 
   const rows = total === 0 ? [] : query(
     state.db,
-    `SELECT l.id, l.source_id, l.external_id, l.title, l.listing_url, l.is_active,
+    `SELECT l.id, l.external_id, l.title, l.listing_url, l.is_active,
             l.last_price_amount, l.last_mileage, l.last_year, l.last_seen_at,
             l.fuel_type, l.engine_power
      ${fromClause}
@@ -1433,13 +1433,11 @@ function viewListings(view, params) {
       sortableTh("KM", "power", { numeric: true }),
       sortableTh("Cena", "price", { numeric: true }),
       sortableTh("Last seen", "last_seen", { numeric: true }),
-      el("th", {}, "Obserwuj"),
       el("th", {}, ""),
     ),
   ));
   const tbody = el("tbody");
   for (const r of rows) {
-    const watchToggle = createWatchToggleButton(r, { compact: true });
     const tr = el("tr", { onclick: (e) => {
       if (e.target.closest("a, button")) return;
       navigate(`#/listing/${r.id}`);
@@ -1452,7 +1450,6 @@ function viewListings(view, params) {
       el("td", { class: "num" }, r.engine_power != null ? `${r.engine_power}` : "—"),
       el("td", { class: "num" }, formatPrice(r.last_price_amount)),
       el("td", { class: "muted tabular" }, formatRelative(r.last_seen_at)),
-      el("td", {}, watchToggle),
       el("td", {}, el("a", { href: r.listing_url, target: "_blank", rel: "noopener" }, "link ↗")),
     );
     tbody.appendChild(tr);
@@ -1557,7 +1554,7 @@ function viewWatchlist(view) {
     const watchedAt = watchedAtByKey.get(watchlistEntryKey(row.source_id, row.external_id));
     const removeBtn = el("button", {
       type: "button",
-      class: "secondary watch-toggle-compact",
+      class: "watchlist-remove-link",
       title: "Usuń z obserwowanych",
       onclick: (event) => {
         event.stopPropagation();
@@ -1602,29 +1599,34 @@ function viewListingDetail(view, id) {
   }
 
   const sellerLabel = formatSellerLabel(listing);
+  const sellerTypeLabel = listing.seller_type
+    ? (listing.seller_type === "BUSINESS" ? "Firma" : listing.seller_type === "PRIVATE" ? "Osoba prywatna" : listing.seller_type)
+    : null;
   const sellerListingsHref = listing.seller_uuid
     ? buildHash("#/listings", { sellerUuid: listing.seller_uuid })
     : null;
   const detailWatchToggle = createWatchToggleButton(listing);
+  if (detailWatchToggle) detailWatchToggle.classList.add("detail-action-button");
 
   view.appendChild(el(
     "div", { class: "detail-header" },
-    el("div", {},
-      el("div", { class: "detail-title-row" },
+    el("div", { class: "detail-title-row" },
+      el("div", { class: "detail-title-block" },
+        el("div", { class: "detail-eyebrow" }, "Oferta"),
         el("h1", {}, listing.title || listing.external_id),
-        el("div", { class: "detail-title-actions" },
-          detailWatchToggle,
-          el("a", { href: listing.listing_url, target: "_blank", rel: "noopener", class: "secondary watch-toggle" }, "Otwórz ofertę ↗"),
-        ),
       ),
-      el("div", { class: "meta" },
-        activeBadge(listing.is_active),
-        el("span", {}, `źródło: ${listing.source_name}`),
-        listing.seller_type ? el("span", {}, `sprzedawca: ${listing.seller_type === "BUSINESS" ? "Firma" : listing.seller_type === "PRIVATE" ? "Osoba prywatna" : listing.seller_type}`) : null,
-        sellerLabel ? el("span", {}, sellerLabel) : null,
-        sellerListingsHref ? el("a", { href: sellerListingsHref }, "Wszystkie oferty sprzedawcy") : null,
-        el("span", {}, `external id: ${listing.external_id}`),
+      el("div", { class: "detail-title-actions" },
+        detailWatchToggle,
+        el("a", { href: listing.listing_url, target: "_blank", rel: "noopener", class: "detail-action-link" }, "Otwórz ofertę ↗"),
+        sellerListingsHref ? el("a", { href: sellerListingsHref, class: "detail-inline-link" }, "Wszystkie oferty sprzedawcy") : null,
       ),
+    ),
+    el("div", { class: "meta" },
+      activeBadge(listing.is_active),
+      detailMetaChip("Źródło", listing.source_name),
+      sellerTypeLabel ? detailMetaChip("Sprzedawca", sellerTypeLabel) : null,
+      sellerLabel ? detailMetaChip("Konto", sellerLabel) : null,
+      detailMetaChip("External id", listing.external_id, { mono: true }),
     ),
   ));
 
@@ -1989,10 +1991,10 @@ function viewRuns(view) {
   view.appendChild(el("h1", {}, "Runs"));
   const rows = query(
     state.db,
-    `SELECT r.*, s.name AS source_name
-     FROM scrape_runs r JOIN sources s ON s.id = r.source_id
-     ORDER BY r.started_at DESC
-     LIMIT 200`,
+     `SELECT r.*, s.name AS source_name
+      FROM scrape_runs r JOIN sources s ON s.id = r.source_id
+      ORDER BY r.started_at DESC
+      LIMIT 50`,
   );
 
   if (rows.length === 0) {
@@ -2052,6 +2054,17 @@ function row(label, value) {
   return el("tr", {},
     el("th", {}, label),
     el("td", {}, value instanceof Node ? value : String(value ?? "—")),
+  );
+}
+
+function detailMetaChip(label, value, options = {}) {
+  const classes = ["detail-meta-chip"];
+  if (options.mono) classes.push("detail-meta-chip--mono");
+  return el(
+    "span",
+    { class: classes.join(" ") },
+    label ? el("span", { class: "detail-meta-label" }, label) : null,
+    el("span", { class: "detail-meta-value" }, value),
   );
 }
 

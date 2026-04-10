@@ -558,6 +558,20 @@ button.secondary {
   padding: 6px 10px;
   font-size: 12px;
 }
+.watchlist-remove-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.watchlist-remove-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
 
 /* Kontrolki paginacji pod tabelą listings. Układ: [prev] [indicator] [next]
    z indykatorem wycentrowanym przez margin auto. Disabled-state używa
@@ -878,39 +892,133 @@ button.secondary {
 
 .detail-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.14), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 100%),
+    var(--panel);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.14);
 }
 
 .detail-title-row {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.detail-title-block {
+  min-width: 0;
+  flex: 1 1 480px;
+}
+.detail-eyebrow {
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 .detail-title-row h1 {
   margin: 0;
+  font-size: clamp(28px, 3vw, 40px);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  max-width: 18ch;
 }
 .detail-title-actions {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  gap: 10px;
+  align-items: stretch;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
-a.watch-toggle {
+.detail-action-link,
+.detail-inline-link,
+.detail-title-actions .watch-toggle {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.detail-action-link:hover,
+.detail-inline-link:hover,
+.detail-title-actions .watch-toggle:hover {
+  text-decoration: none;
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+}
+.detail-title-actions .watch-toggle {
+  min-width: 148px;
+}
+.detail-title-actions .watch-toggle.is-active {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  border-color: transparent;
+  color: #ffffff;
+}
+.detail-title-actions .watch-toggle.is-active:hover {
+  box-shadow: 0 14px 28px rgba(37, 99, 235, 0.28);
 }
 .detail-header .meta {
   display: flex;
-  gap: 16px;
-  font-size: 13px;
-  color: var(--muted);
+  gap: 10px;
+  align-items: center;
   flex-wrap: wrap;
+}
+.detail-meta-chip {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  min-width: 0;
+}
+.detail-meta-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.detail-meta-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-meta-chip--mono .detail-meta-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.detail-inline-link {
+  background: transparent;
+}
+.detail-inline-link:hover {
+  color: var(--accent);
 }
 .watchlist-actions {
   display: flex;
@@ -955,6 +1063,29 @@ a.watch-toggle {
   /* Tighter gutter on phones — 20px symmetric padding eats 40px of a
      375px screen. */
   main { padding: 12px; }
+
+  .detail-header {
+    padding: 16px;
+    border-radius: 14px;
+  }
+  .detail-title-row h1 {
+    max-width: none;
+  }
+  .detail-title-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+  .detail-action-link,
+  .detail-inline-link,
+  .detail-title-actions .watch-toggle {
+    flex: 1 1 180px;
+  }
+  .detail-meta-chip {
+    max-width: 100%;
+  }
+  .detail-meta-value {
+    max-width: 100%;
+  }
 
   h1 { font-size: 20px; }
 
