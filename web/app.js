@@ -2,6 +2,14 @@
 // Loads db/car-market-monitor.sqlite via sql.js (WASM SQLite) and renders views with hash routing.
 
 import { compactMultiLineSegments, diffLines, tokenDiffAsSegments } from "./diff.js";
+import {
+  WATCHLIST_STORAGE_KEY,
+  parseWatchlist,
+  removeWatchlistEntry,
+  serializeWatchlist,
+  upsertWatchlistEntry,
+  watchlistEntryKey,
+} from "./watchlist.js";
 import { diffImageUrlArrays } from "../shared/image-urls.js";
 import { diffValueAddedServices, formatValueAddedServiceName } from "../shared/value-added-services.js";
 
@@ -17,6 +25,7 @@ const DB_MANIFEST_PATH = `${DB_PATH}.version.json`;
 const state = {
   db: null,
   sizeBytes: 0,
+  watchlistEntries: [],
 };
 
 // ---------- bootstrap ----------
@@ -87,6 +96,7 @@ function stripHtml(html) {
 
 async function init() {
   initTheme();
+  syncWatchlistStateFromStorage();
   try {
     const loaded = await loadDb();
     state.db = loaded.db;
@@ -124,6 +134,95 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   const btn = document.getElementById("theme-toggle");
   if (btn) btn.textContent = theme === "dark" ? "Light" : "Dark";
+}
+
+// ---------- watchlist ----------
+
+function loadWatchlistEntriesFromStorage() {
+  try {
+    return parseWatchlist(localStorage.getItem(WATCHLIST_STORAGE_KEY));
+  } catch {
+    return [];
+  }
+}
+
+function syncWatchlistStateFromStorage() {
+  state.watchlistEntries = loadWatchlistEntriesFromStorage();
+  updateWatchlistNav();
+}
+
+function persistWatchlistEntries(entries) {
+  state.watchlistEntries = entries;
+  try {
+    localStorage.setItem(WATCHLIST_STORAGE_KEY, serializeWatchlist(entries));
+  } catch (error) {
+    console.warn("Failed to persist watchlist", error);
+  }
+  updateWatchlistNav();
+}
+
+function getListingWatchRef(listingLike) {
+  const sourceId = String(listingLike?.source_id ?? listingLike?.sourceId ?? "").trim();
+  const externalId = String(listingLike?.external_id ?? listingLike?.externalId ?? "").trim();
+  if (!sourceId || !externalId) return null;
+  return { sourceId, externalId };
+}
+
+function isListingWatched(listingLike) {
+  const ref = getListingWatchRef(listingLike);
+  if (!ref) return false;
+  const key = watchlistEntryKey(ref.sourceId, ref.externalId);
+  return state.watchlistEntries.some((entry) => watchlistEntryKey(entry.sourceId, entry.externalId) === key);
+}
+
+function setListingWatched(listingLike, watched) {
+  const ref = getListingWatchRef(listingLike);
+  if (!ref) return false;
+  const nextEntries = watched
+    ? upsertWatchlistEntry(state.watchlistEntries, { ...ref, watchedAt: new Date().toISOString() })
+    : removeWatchlistEntry(state.watchlistEntries, ref.sourceId, ref.externalId);
+  persistWatchlistEntries(nextEntries);
+  return watched;
+}
+
+function toggleListingWatched(listingLike) {
+  return setListingWatched(listingLike, !isListingWatched(listingLike));
+}
+
+function updateWatchlistNav() {
+  const link = document.querySelector("[data-watchlist-link]");
+  if (!link) return;
+  const count = state.watchlistEntries.length;
+  link.textContent = count > 0 ? `Obserwowane (${count})` : "Obserwowane";
+}
+
+function syncWatchToggleButton(button, watched, options = {}) {
+  const compact = options.compact === true;
+  button.classList.toggle("is-active", watched);
+  button.setAttribute("aria-pressed", watched ? "true" : "false");
+  button.textContent = watched
+    ? "Obserwowane"
+    : (compact ? "Obserwuj" : "Obserwuj ogłoszenie");
+  button.title = watched ? "Kliknij, aby usunąć z obserwowanych" : "Kliknij, aby dodać do obserwowanych";
+}
+
+function createWatchToggleButton(listingLike, options = {}) {
+  const ref = getListingWatchRef(listingLike);
+  if (!ref) return null;
+  const compact = options.compact === true;
+  const button = el("button", {
+    type: "button",
+    class: `secondary watch-toggle${compact ? " watch-toggle-compact" : ""}`,
+  });
+  syncWatchToggleButton(button, isListingWatched(listingLike), { compact });
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const watched = toggleListingWatched(ref);
+    syncWatchToggleButton(button, watched, { compact });
+    if (typeof options.onChange === "function") options.onChange(watched);
+  });
+  return button;
 }
 
 // ---------- query helper ----------
@@ -316,6 +415,8 @@ function route() {
       viewActivity(view, params);
     } else if (path === "#/listings") {
       viewListings(view, params);
+    } else if (path === "#/watchlist") {
+      viewWatchlist(view);
     } else if (path.startsWith("#/listing/")) {
       const id = path.slice("#/listing/".length);
       viewListingDetail(view, id);
@@ -343,6 +444,12 @@ function highlightNav(path) {
 }
 
 window.addEventListener("hashchange", route);
+window.addEventListener("storage", (event) => {
+  if (event.key != null && event.key !== WATCHLIST_STORAGE_KEY) return;
+  syncWatchlistStateFromStorage();
+  const { path } = parseHash();
+  if (state.db && path === "#/watchlist") route();
+});
 window.addEventListener("DOMContentLoaded", init);
 
 // ---------- views ----------
@@ -1266,7 +1373,7 @@ function viewListings(view, params) {
 
   const rows = total === 0 ? [] : query(
     state.db,
-    `SELECT l.id, l.external_id, l.title, l.listing_url, l.is_active,
+    `SELECT l.id, l.source_id, l.external_id, l.title, l.listing_url, l.is_active,
             l.last_price_amount, l.last_mileage, l.last_year, l.last_seen_at,
             l.fuel_type, l.engine_power
      ${fromClause}
@@ -1326,13 +1433,15 @@ function viewListings(view, params) {
       sortableTh("KM", "power", { numeric: true }),
       sortableTh("Cena", "price", { numeric: true }),
       sortableTh("Last seen", "last_seen", { numeric: true }),
+      el("th", {}, "Obserwuj"),
       el("th", {}, ""),
     ),
   ));
   const tbody = el("tbody");
   for (const r of rows) {
+    const watchToggle = createWatchToggleButton(r, { compact: true });
     const tr = el("tr", { onclick: (e) => {
-      if (e.target.tagName === "A") return;
+      if (e.target.closest("a, button")) return;
       navigate(`#/listing/${r.id}`);
     }},
       el("td", {}, activeBadge(r.is_active)),
@@ -1343,6 +1452,7 @@ function viewListings(view, params) {
       el("td", { class: "num" }, r.engine_power != null ? `${r.engine_power}` : "—"),
       el("td", { class: "num" }, formatPrice(r.last_price_amount)),
       el("td", { class: "muted tabular" }, formatRelative(r.last_seen_at)),
+      el("td", {}, watchToggle),
       el("td", {}, el("a", { href: r.listing_url, target: "_blank", rel: "noopener" }, "link ↗")),
     );
     tbody.appendChild(tr);
@@ -1376,6 +1486,106 @@ function viewListings(view, params) {
   }
 }
 
+function viewWatchlist(view) {
+  view.appendChild(el("h1", {}, "Obserwowane"));
+
+  const entries = state.watchlistEntries;
+  if (entries.length === 0) {
+    view.appendChild(el("p", { class: "empty" }, "Nie obserwujesz jeszcze żadnych ogłoszeń."));
+    view.appendChild(
+      el(
+        "div",
+        { class: "watchlist-actions" },
+        el("button", { type: "button", class: "secondary", onclick: () => navigate("#/listings") }, "Przejdź do listy ogłoszeń"),
+      ),
+    );
+    return;
+  }
+
+  const watchedAtByKey = new Map(
+    entries.map((entry) => [watchlistEntryKey(entry.sourceId, entry.externalId), entry.watchedAt]),
+  );
+  const whereClause = entries
+    .map(() => "(l.source_id = ? AND l.external_id = ?)")
+    .join(" OR ");
+  const args = entries.flatMap((entry) => [entry.sourceId, entry.externalId]);
+  const rows = query(
+    state.db,
+    `SELECT l.id, l.source_id, l.external_id, l.title, l.listing_url, l.is_active,
+            l.last_price_amount, l.last_mileage, l.last_year, l.last_seen_at,
+            l.fuel_type, l.engine_power
+     FROM listings l
+     WHERE ${whereClause}`,
+    args,
+  );
+
+  rows.sort((a, b) => {
+    const aTs = Date.parse(watchedAtByKey.get(watchlistEntryKey(a.source_id, a.external_id)) || "") || 0;
+    const bTs = Date.parse(watchedAtByKey.get(watchlistEntryKey(b.source_id, b.external_id)) || "") || 0;
+    return bTs - aTs || String(b.last_seen_at || "").localeCompare(String(a.last_seen_at || "")) || String(a.title || "").localeCompare(String(b.title || ""), "pl");
+  });
+
+  const missingCount = Math.max(0, entries.length - rows.length);
+  const summary = [`${rows.length} obserwowanych ogłoszeń`];
+  if (missingCount > 0) summary.push(`${missingCount} poza aktualną bazą`);
+  view.appendChild(el("p", { class: "muted" }, summary.join(" · ")));
+
+  if (rows.length === 0) {
+    view.appendChild(el("p", { class: "empty" }, "Obserwowane wpisy istnieją w pamięci przeglądarki, ale nie ma ich w aktualnej bazie."));
+    return;
+  }
+
+  const table = el("table");
+  table.appendChild(el(
+    "thead", {},
+    el("tr", {},
+      el("th", {}, "Obserwowane od"),
+      el("th", {}, "Status"),
+      el("th", {}, "Tytuł"),
+      el("th", { class: "num" }, "Rok"),
+      el("th", { class: "num" }, "Przebieg"),
+      el("th", {}, "Paliwo"),
+      el("th", { class: "num" }, "KM"),
+      el("th", { class: "num" }, "Cena"),
+      el("th", {}, "Last seen"),
+      el("th", {}, "Obserwuj"),
+      el("th", {}, ""),
+    ),
+  ));
+  const tbody = el("tbody");
+  for (const row of rows) {
+    const watchedAt = watchedAtByKey.get(watchlistEntryKey(row.source_id, row.external_id));
+    const watchToggle = createWatchToggleButton(row, {
+      compact: true,
+      onChange: (watched) => {
+        if (!watched) route();
+      },
+    });
+    tbody.appendChild(el("tr", {
+      onclick: (event) => {
+        if (event.target.closest("a, button")) return;
+        navigate(`#/listing/${row.id}`);
+      },
+    },
+    el("td", { class: "tabular muted" }, formatDate(watchedAt)),
+    el("td", {}, activeBadge(row.is_active)),
+    el("td", {}, el("span", { class: "row-link" }, row.title || row.external_id)),
+    el("td", { class: "num" }, row.last_year || "—"),
+    el("td", { class: "num" }, formatMileage(row.last_mileage)),
+    el("td", { class: "muted" }, formatEnum(row.fuel_type)),
+    el("td", { class: "num" }, row.engine_power != null ? `${row.engine_power}` : "—"),
+    el("td", { class: "num" }, formatPrice(row.last_price_amount)),
+    el("td", { class: "muted tabular" }, formatRelative(row.last_seen_at)),
+    el("td", {}, watchToggle),
+    el("td", {}, el("a", { href: row.listing_url, target: "_blank", rel: "noopener" }, "link ↗")),
+    ));
+  }
+  table.appendChild(tbody);
+  const panel = el("div", { class: "panel" });
+  panel.appendChild(table);
+  view.appendChild(panel);
+}
+
 function viewListingDetail(view, id) {
   const listing = query(
     state.db,
@@ -1391,6 +1601,7 @@ function viewListingDetail(view, id) {
   const sellerListingsHref = listing.seller_uuid
     ? buildHash("#/listings", { sellerUuid: listing.seller_uuid })
     : null;
+  const detailWatchToggle = createWatchToggleButton(listing);
 
   view.appendChild(el(
     "div", { class: "detail-header" },
@@ -1406,6 +1617,7 @@ function viewListingDetail(view, id) {
         el("a", { href: listing.listing_url, target: "_blank", rel: "noopener" }, "Otwórz ofertę ↗"),
       ),
     ),
+    detailWatchToggle ? el("div", { class: "detail-actions" }, detailWatchToggle) : null,
   ));
 
   // Najważniejsze meta jako stat cards. Pierwszy rząd to standardowe price/year/mileage,

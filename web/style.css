@@ -545,6 +545,19 @@ button.secondary {
   color: var(--text);
   border-color: var(--border);
 }
+.watch-toggle {
+  white-space: nowrap;
+}
+.watch-toggle.is-active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.watch-toggle-compact {
+  min-width: 112px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
 
 /* Kontrolki paginacji pod tabelą listings. Układ: [prev] [indicator] [next]
    z indykatorem wycentrowanym przez margin auto. Disabled-state używa
@@ -878,6 +891,16 @@ button.secondary {
   font-size: 13px;
   color: var(--muted);
   flex-wrap: wrap;
+}
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.watchlist-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 16px;
 }
 
 .muted { color: var(--muted); }
