@@ -1,6 +1,6 @@
 import { decryptToken, decryptTokens } from "./marketplace-source-tokens.js";
 import { extractParams } from "./marketplace-source-params.js";
-import { HttpError, flattenForDiff, sha256Hex, stableStringify, stableValue, stripHtml } from "./utils.js";
+import { HttpError, flattenForDiff, sha256Hex, sleep, stableStringify, stableValue, stripHtml } from "./utils.js";
 import { normalizeDescriptionHtml } from "./description-html.js";
 import { normalizeValueAddedServices } from "../../shared/value-added-services.js";
 
@@ -17,6 +17,8 @@ const PAGINATION_SAFETY_MARGIN = 2;
 // Hard cap na wypadek bugu w stronie/parsingu — żeby pętla nie leciała w
 // nieskończoność jeśli upstream zaczyna zwracać te same ID w kółko.
 const PAGINATION_HARD_CAP = 100;
+// Delay between consecutive page fetches to avoid upstream rate limiting.
+const PAGINATION_DELAY_MS = 500;
 
 export function detectSite(url) {
   const parsed = new URL(url);
@@ -55,17 +57,23 @@ export async function scrapeMarketplaceListingCards(url, fetchImpl = fetch) {
   // dorzucone w trakcie scrape'u przesuwają stare poza pierwotną granicę).
   // Ograniczamy hard capem.
   const maxPage = Math.min(PAGINATION_HARD_CAP, reportedPageCount + PAGINATION_SAFETY_MARGIN);
+  console.log(`[discovery] total=${totalCount} pageSize=${pageSize} pages=${reportedPageCount} maxPage=${maxPage}`);
 
   const rawCards = [];
   rawCards.push(...extractListingCards(firstSearch, 1));
+  console.log(`[discovery] page 1: ${rawCards.length} cards`);
 
   let actualPageCount = 1;
   for (let page = 2; page <= maxPage; page += 1) {
+    await sleep(PAGINATION_DELAY_MS);
     let pageCards;
     try {
-      const html = await fetchHtml(fetchImpl, pageUrl(normalizedUrl, page));
+      const url = pageUrl(normalizedUrl, page);
+      console.log(`[discovery] fetching page ${page}/${maxPage}: ${url}`);
+      const html = await fetchHtml(fetchImpl, url);
       const searchPayload = extractAdvertSearch(html);
       pageCards = extractListingCards(searchPayload, page);
+      console.log(`[discovery] page ${page}: ${pageCards.length} cards`);
     } catch (error) {
       // Żaden błąd na stronie >1 NIE jest traktowany jako koniec
       // paginacji. Źródło dla out-of-range stron zwraca HTTP 200
@@ -156,7 +164,7 @@ async function fetchHtml(fetchImpl, url) {
     });
 
     if (!response.ok) {
-      throw new HttpError(response.status, `Upstream fetch failed for ${url}`);
+      throw new HttpError(response.status, `Upstream fetch failed with HTTP ${response.status} for ${url}`);
     }
 
     const html = await response.text();
