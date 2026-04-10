@@ -864,8 +864,8 @@ button.secondary {
    user into a raw CDN tab. */
 .listing-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
   padding: 14px 16px;
 }
 .gallery-item {
@@ -912,8 +912,9 @@ body.gallery-lightbox-open {
   position: fixed;
   inset: 0;
   z-index: 100;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 20px;
   background: rgba(15, 23, 42, 0.78);
   backdrop-filter: blur(8px);
@@ -1302,7 +1303,7 @@ body.gallery-lightbox-open {
   /* Listing detail gallery: smaller tile minimum so two columns fit on
      a 350px screen (180px was forcing single-column). */
   .listing-gallery {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     padding: 10px 12px;
     gap: 6px;
   }

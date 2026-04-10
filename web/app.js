@@ -1881,10 +1881,12 @@ function viewListingDetail(view, id) {
     } catch {}
   }
   if (galleryUrls.length > 0) {
+    const thumbUrls = galleryUrls.map((u) => u + ";s=268x0;q=80");
+    const fullUrls = galleryUrls.map((u) => u + ";s=3412x0;q=100");
     const galleryPanel = el("div", { class: "panel" });
     galleryPanel.appendChild(el("div", { class: "panel-header" }, `Zdjęcia (${galleryUrls.length})`));
     const grid = el("div", { class: "listing-gallery" });
-    for (const [index, url] of galleryUrls.entries()) {
+    for (const [index, url] of thumbUrls.entries()) {
       const thumbButton = el(
         "button",
         {
@@ -1892,7 +1894,7 @@ function viewListingDetail(view, id) {
           class: "gallery-item",
           title: `Otwórz galerię (${index + 1} / ${galleryUrls.length})`,
           "aria-label": `Otwórz galerię, zdjęcie ${index + 1} z ${galleryUrls.length}`,
-          onclick: () => openGalleryLightbox(galleryUrls, index, thumbButton),
+          onclick: () => openGalleryLightbox(fullUrls, index, thumbButton),
         },
         el("img", { src: url, loading: "lazy", alt: "" }),
       );
