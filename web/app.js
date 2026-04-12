@@ -2533,7 +2533,7 @@ function formatValueAddedServicesSummary(side, diff) {
   const parts = [];
   if (side === "old") {
     if (diff.removedCount) {
-      parts.push(`− ${diff.removedCount} ${formatCountPl(diff.removedCount, "usunięta", "usunięte", "usuniętych")}`);
+      parts.push(`- ${diff.removedCount} ${formatCountPl(diff.removedCount, "usunięta", "usunięte", "usuniętych")}`);
     }
     if (diff.changedCount) {
       parts.push(`~ ${diff.changedCount} ${formatCountPl(diff.changedCount, "zmiana", "zmiany", "zmian")}`);
@@ -2740,7 +2740,7 @@ function renderImageDiffSide(side, ownValue, oppositeValue) {
     return el("span", { class: "muted" }, "—");
   }
   const labelText = side === "old"
-    ? `− ${delta.length} usuni${delta.length === 1 ? "ęte" : "ętych"}`
+    ? `- ${delta.length} usuni${delta.length === 1 ? "ęte" : "ętych"}`
     : `+ ${delta.length} dodan${delta.length === 1 ? "e" : "ych"}`;
   const wrap = el("div", { class: "image-diff" });
   wrap.appendChild(
