@@ -554,6 +554,38 @@ function formatPrice(value, currency = "PLN") {
   return `${num.toLocaleString("pl-PL")} ${currency}`;
 }
 
+function formatSignedPriceDelta(value, currency = "PLN") {
+  if (value == null || value === "") return "—";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return String(value);
+  const prefix = num > 0 ? "+" : num < 0 ? "-" : "";
+  return `${prefix}${formatPrice(Math.abs(num), currency)}`;
+}
+
+function formatSignedPercentDelta(value) {
+  if (value == null || value === "") return "";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return String(value);
+  const prefix = num > 0 ? "+" : num < 0 ? "-" : "";
+  return `${prefix}${Math.abs(num).toFixed(1)}%`;
+}
+
+function describePriceChange(oldValue, newValue) {
+  const oldNum = Number(oldValue);
+  const newNum = Number(newValue);
+  if (!Number.isFinite(oldNum) || !Number.isFinite(newNum)) {
+    return { className: "", label: "—" };
+  }
+  const amount = newNum - oldNum;
+  const pct = oldNum > 0 ? (amount * 100.0) / oldNum : null;
+  return {
+    className: amount > 0 ? "price-rise" : amount < 0 ? "price-drop" : "",
+    label: pct == null
+      ? formatSignedPriceDelta(amount)
+      : `${formatSignedPriceDelta(amount)} (${formatSignedPercentDelta(pct)})`,
+  };
+}
+
 function formatMileage(value) {
   if (value == null || value === "") return "—";
   const num = Number(value);
@@ -808,53 +840,57 @@ function viewHome(view, params = {}) {
     return { sortKey, sortDir, sortExpr, sortableTh };
   }
 
-  // Price drops
-  const HOME_DROP_SORT_COLUMNS = {
+  // Price changes
+  const HOME_PRICE_CHANGE_SORT_COLUMNS = {
     when: "created_at",
     title: "lower(title)",
     old_price: "CAST(old_value AS REAL)",
     new_price: "CAST(new_value AS REAL)",
-    drop: "drop_amount",
+    change: "price_change_amount",
   };
-  const dropSort = buildHomeTableSort("dropSort", "dropDir", HOME_DROP_SORT_COLUMNS);
-  const drops = query(
+  const priceChangeSort = buildHomeTableSort("dropSort", "dropDir", HOME_PRICE_CHANGE_SORT_COLUMNS);
+  const priceChanges = query(
     state.db,
-    `WITH recent_drops AS (
+    `WITH recent_price_changes AS (
        SELECT lc.created_at, lc.old_value, lc.new_value, l.id, l.title, l.listing_url,
-              (CAST(lc.old_value AS REAL) - CAST(lc.new_value AS REAL)) AS drop_amount,
-              (CAST(lc.old_value AS REAL) - CAST(lc.new_value AS REAL)) * 100.0 / CAST(lc.old_value AS REAL) AS drop_pct
+              (CAST(lc.new_value AS REAL) - CAST(lc.old_value AS REAL)) AS price_change_amount
        FROM listing_changes lc
        JOIN listings l ON l.id = lc.listing_id
        WHERE lc.field_name = 'price.value'
          AND lc.old_value IS NOT NULL AND lc.new_value IS NOT NULL
+         AND CAST(lc.old_value AS REAL) > 0
          AND CAST(lc.new_value AS REAL) > 0
-         AND CAST(lc.new_value AS REAL) < CAST(lc.old_value AS REAL)
+         AND CAST(lc.new_value AS REAL) <> CAST(lc.old_value AS REAL)
          AND lc.created_at >= datetime('now', '-30 days')
        ORDER BY lc.created_at DESC, l.title ASC
        LIMIT 20
      )
      SELECT *
-     FROM recent_drops
-     ORDER BY ${dropSort.sortExpr} ${dropSort.sortDir} NULLS LAST, created_at DESC, title ASC`,
+     FROM recent_price_changes
+     ORDER BY ${priceChangeSort.sortExpr} ${priceChangeSort.sortDir} NULLS LAST, created_at DESC, title ASC`,
   );
   view.appendChild(panelTable(
-    "Spadki cen (ostatnie 30 dni · 20 najnowszych)",
+    "Zmiany cen (ostatnie 30 dni · 20 najnowszych)",
     [
-      dropSort.sortableTh("Kiedy", "when", { numeric: true }),
-      dropSort.sortableTh("Oferta", "title"),
-      dropSort.sortableTh("Z", "old_price", { numeric: true }),
-      dropSort.sortableTh("Na", "new_price", { numeric: true }),
-      dropSort.sortableTh("Spadek", "drop", { numeric: true }),
+      priceChangeSort.sortableTh("Kiedy", "when", { numeric: true }),
+      priceChangeSort.sortableTh("Oferta", "title"),
+      priceChangeSort.sortableTh("Z", "old_price", { numeric: true }),
+      priceChangeSort.sortableTh("Na", "new_price", { numeric: true }),
+      priceChangeSort.sortableTh("Zmiana", "change", { numeric: true }),
     ],
-    drops.map((r) => [
-      formatRelative(r.created_at),
-      listingLink(r.id, r.title || r.id),
-      el("span", { class: "tabular" }, formatPrice(r.old_value)),
-      el("span", { class: "tabular price-drop" }, formatPrice(r.new_value)),
-      el("span", { class: "tabular price-drop" }, `−${formatPrice(r.drop_amount)} (${r.drop_pct.toFixed(1)}%)`),
-    ]),
-    drops.map((r) => () => navigate(`#/listing/${r.id}`)),
-    "Brak spadków cen w ostatnich 30 dniach.",
+    priceChanges.map((r) => {
+      const change = describePriceChange(r.old_value, r.new_value);
+      const changeClass = change.className ? ` ${change.className}` : "";
+      return [
+        formatRelative(r.created_at),
+        listingLink(r.id, r.title || r.id),
+        el("span", { class: "tabular" }, formatPrice(r.old_value)),
+        el("span", { class: `tabular${changeClass}` }, formatPrice(r.new_value)),
+        el("span", { class: `tabular${changeClass}` }, change.label),
+      ];
+    }),
+    priceChanges.map((r) => () => navigate(`#/listing/${r.id}`)),
+    "Brak zmian cen w ostatnich 30 dniach.",
   ));
 
   // Recently disappeared. Two filters here that aren't obvious:
@@ -1013,46 +1049,56 @@ function viewActivity(view, params = {}) {
     ));
   }
 
-  const dropSortColumns = {
+  const priceChangeSortColumns = {
     when: "created_at",
     title: "lower(title)",
     old_price: "CAST(old_value AS REAL)",
     new_price: "CAST(new_value AS REAL)",
-    drop: "drop_amount",
+    change: "price_change_amount",
   };
-  const dropSort = buildActivitySort("dropsSort", "dropsDir", "dropsPage", dropSortColumns);
-  const dropPage = readPageParam("dropsPage");
-  const dropBaseSql = `SELECT lc.created_at, lc.old_value, lc.new_value, l.id, l.title, l.listing_url,
-                              (CAST(lc.old_value AS REAL) - CAST(lc.new_value AS REAL)) AS drop_amount,
-                              (CAST(lc.old_value AS REAL) - CAST(lc.new_value AS REAL)) * 100.0 / CAST(lc.old_value AS REAL) AS drop_pct
-                       FROM listing_changes lc
-                       JOIN listings l ON l.id = lc.listing_id
-                       WHERE lc.field_name = 'price.value'
-                         AND lc.old_value IS NOT NULL AND lc.new_value IS NOT NULL
-                         AND CAST(lc.new_value AS REAL) > 0
-                         AND CAST(lc.new_value AS REAL) < CAST(lc.old_value AS REAL)
-                         AND lc.created_at >= datetime('now', '-30 days')`;
-  const drops = queryPagedSection(dropBaseSql, dropSort.sortExpr, dropSort.sortDir, dropPage, "created_at DESC, title ASC");
+  const priceChangeSort = buildActivitySort("dropsSort", "dropsDir", "dropsPage", priceChangeSortColumns);
+  const priceChangePage = readPageParam("dropsPage");
+  const priceChangeBaseSql = `SELECT lc.created_at, lc.old_value, lc.new_value, l.id, l.title, l.listing_url,
+                                     (CAST(lc.new_value AS REAL) - CAST(lc.old_value AS REAL)) AS price_change_amount
+                              FROM listing_changes lc
+                              JOIN listings l ON l.id = lc.listing_id
+                              WHERE lc.field_name = 'price.value'
+                                AND lc.old_value IS NOT NULL AND lc.new_value IS NOT NULL
+                                AND CAST(lc.old_value AS REAL) > 0
+                                AND CAST(lc.new_value AS REAL) > 0
+                                AND CAST(lc.new_value AS REAL) <> CAST(lc.old_value AS REAL)
+                                AND lc.created_at >= datetime('now', '-30 days')`;
+  const priceChanges = queryPagedSection(
+    priceChangeBaseSql,
+    priceChangeSort.sortExpr,
+    priceChangeSort.sortDir,
+    priceChangePage,
+    "created_at DESC, title ASC",
+  );
   view.appendChild(panelTable(
-    `Spadki cen (ostatnie 30 dni) · ${drops.total.toLocaleString("pl-PL")}`,
+    `Zmiany cen (ostatnie 30 dni) · ${priceChanges.total.toLocaleString("pl-PL")}`,
     [
-      dropSort.sortableTh("Kiedy", "when", { numeric: true }),
-      dropSort.sortableTh("Oferta", "title"),
-      dropSort.sortableTh("Z", "old_price", { numeric: true }),
-      dropSort.sortableTh("Na", "new_price", { numeric: true }),
-      dropSort.sortableTh("Spadek", "drop", { numeric: true }),
+      priceChangeSort.sortableTh("Kiedy", "when", { numeric: true }),
+      priceChangeSort.sortableTh("Oferta", "title"),
+      priceChangeSort.sortableTh("Z", "old_price", { numeric: true }),
+      priceChangeSort.sortableTh("Na", "new_price", { numeric: true }),
+      priceChangeSort.sortableTh("Zmiana", "change", { numeric: true }),
     ],
-    drops.rows.map((r) => [
-      formatRelative(r.created_at),
-      listingLink(r.id, r.title || r.id),
-      el("span", { class: "tabular" }, formatPrice(r.old_value)),
-      el("span", { class: "tabular price-drop" }, formatPrice(r.new_value)),
-      el("span", { class: "tabular price-drop" }, `−${formatPrice(r.drop_amount)} (${r.drop_pct.toFixed(1)}%)`),
-    ]),
-    drops.rows.map((r) => () => navigate(`#/listing/${r.id}`)),
-    "Brak spadków cen w ostatnich 30 dniach.",
+    priceChanges.rows.map((r) => {
+      const change = describePriceChange(r.old_value, r.new_value);
+      const changeClass = change.className ? ` ${change.className}` : "";
+      return [
+        formatRelative(r.created_at),
+        listingLink(r.id, r.title || r.id),
+        el("span", { class: "tabular" }, formatPrice(r.old_value)),
+        el("span", { class: `tabular${changeClass}` }, formatPrice(r.new_value)),
+        el("span", { class: `tabular${changeClass}` }, change.label),
+      ];
+    }),
+    priceChanges.rows.map((r) => () => navigate(`#/listing/${r.id}`)),
+    "Brak zmian cen w ostatnich 30 dniach.",
   ));
-  appendPager("dropsPage", drops.page, drops.totalPages);
+  appendPager("dropsPage", priceChanges.page, priceChanges.totalPages);
 
   const statusSortColumns = {
     when: "created_at",
