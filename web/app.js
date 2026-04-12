@@ -26,6 +26,7 @@ const state = {
   sizeBytes: 0,
   watchlistEntries: [],
   galleryLightbox: null,
+  closeTopbarMenu: null,
 };
 
 // ---------- bootstrap ----------
@@ -96,6 +97,7 @@ function stripHtml(html) {
 
 async function init() {
   initTheme();
+  initTopbarMenu();
   syncWatchlistStateFromStorage();
   initGalleryLightbox();
   try {
@@ -134,7 +136,65 @@ function initTheme() {
 function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   const btn = document.getElementById("theme-toggle");
-  if (btn) btn.textContent = theme === "dark" ? "Light" : "Dark";
+  if (btn) {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    btn.textContent = nextTheme === "dark" ? "Dark" : "Light";
+    btn.setAttribute("data-theme-current", theme);
+    btn.setAttribute("data-theme-next", nextTheme);
+    btn.setAttribute(
+      "aria-label",
+      nextTheme === "dark" ? "Przełącz na tryb ciemny" : "Przełącz na tryb jasny",
+    );
+    btn.title = nextTheme === "dark" ? "Przełącz na tryb ciemny" : "Przełącz na tryb jasny";
+  }
+}
+
+// ---------- mobile nav ----------
+
+function initTopbarMenu() {
+  const topbar = document.querySelector(".topbar");
+  const toggle = document.getElementById("nav-toggle");
+  const nav = document.querySelector(".topbar nav");
+  if (!topbar || !toggle || !nav) return;
+
+  const mobileMq = window.matchMedia("(max-width: 720px)");
+  const closeMenu = () => {
+    topbar.classList.remove("is-menu-open");
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-label", "Otwórz menu");
+    document.body.classList.remove("topbar-menu-open");
+  };
+  const openMenu = () => {
+    topbar.classList.add("is-menu-open");
+    toggle.setAttribute("aria-expanded", "true");
+    toggle.setAttribute("aria-label", "Zamknij menu");
+    document.body.classList.add("topbar-menu-open");
+  };
+
+  state.closeTopbarMenu = closeMenu;
+
+  toggle.addEventListener("click", () => {
+    if (topbar.classList.contains("is-menu-open")) closeMenu();
+    else openMenu();
+  });
+
+  nav.addEventListener("click", (event) => {
+    if (event.target.closest("a") || event.target.closest(".theme-toggle")) closeMenu();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!mobileMq.matches || !topbar.classList.contains("is-menu-open")) return;
+    if (topbar.contains(event.target)) return;
+    closeMenu();
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeMenu();
+  });
+
+  mobileMq.addEventListener("change", (event) => {
+    if (!event.matches) closeMenu();
+  });
 }
 
 // ---------- watchlist ----------
@@ -604,6 +664,7 @@ function navigate(path, params = {}) {
 function route() {
   if (!state.db) return;
   closeGalleryLightbox({ restoreFocus: false });
+  if (typeof state.closeTopbarMenu === "function") state.closeTopbarMenu();
   const { path, params } = parseHash();
   highlightNav(path);
   const view = clearView();
@@ -1780,6 +1841,7 @@ function viewWatchlist(view) {
 }
 
 function viewListingDetail(view, id) {
+  const isCompactDetail = window.matchMedia("(max-width: 720px)").matches;
   const listing = query(
     state.db,
     `SELECT l.*, s.name AS source_name FROM listings l JOIN sources s ON s.id = l.source_id WHERE l.id = ?`,
@@ -1885,6 +1947,8 @@ function viewListingDetail(view, id) {
     const galleryPanel = el("div", { class: "panel" });
     galleryPanel.appendChild(el("div", { class: "panel-header" }, `Zdjęcia (${galleryUrls.length})`));
     const grid = el("div", { class: "listing-gallery" });
+    const collapsibleGallery = isCompactDetail && galleryUrls.length > 6;
+    if (collapsibleGallery) grid.classList.add("is-collapsed");
     for (const [index, url] of thumbUrls.entries()) {
       const thumbButton = el(
         "button",
@@ -1900,6 +1964,19 @@ function viewListingDetail(view, id) {
       grid.appendChild(thumbButton);
     }
     galleryPanel.appendChild(grid);
+    if (collapsibleGallery) {
+      const toggle = el("button", {
+        type: "button",
+        class: "secondary detail-section-toggle",
+        onclick: () => {
+          const collapsed = grid.classList.toggle("is-collapsed");
+          toggle.textContent = collapsed
+            ? `Pokaż wszystkie zdjęcia (${galleryUrls.length})`
+            : "Zwiń zdjęcia";
+        },
+      }, `Pokaż wszystkie zdjęcia (${galleryUrls.length})`);
+      galleryPanel.appendChild(el("div", { class: "panel-actions" }, toggle));
+    }
     view.appendChild(galleryPanel);
   }
 
@@ -1915,7 +1992,21 @@ function viewListingDetail(view, id) {
   if (richDescription) {
     const descPanel = el("div", { class: "panel" });
     descPanel.appendChild(el("div", { class: "panel-header" }, "Opis sprzedawcy"));
-    descPanel.appendChild(el("div", { class: "description-body" }, richDescription));
+    const descBody = el("div", { class: "description-body" }, richDescription);
+    const collapsibleDescription = isCompactDetail && (descBody.textContent || "").trim().length > 420;
+    if (collapsibleDescription) descBody.classList.add("is-collapsed");
+    descPanel.appendChild(descBody);
+    if (collapsibleDescription) {
+      const toggle = el("button", {
+        type: "button",
+        class: "secondary detail-section-toggle",
+        onclick: () => {
+          const collapsed = descBody.classList.toggle("is-collapsed");
+          toggle.textContent = collapsed ? "Pokaż pełny opis" : "Zwiń opis";
+        },
+      }, "Pokaż pełny opis");
+      descPanel.appendChild(el("div", { class: "panel-actions" }, toggle));
+    }
     view.appendChild(descPanel);
   }
 
@@ -2011,14 +2102,16 @@ function viewListingDetail(view, id) {
     .map((s) => ({ t: new Date(s.captured_at).getTime(), v: Number(s.price_amount) }))
     .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
 
-  const pricePanel = el("div", { class: "panel" });
-  pricePanel.appendChild(el("div", { class: "panel-header" }, `Historia ceny (${priceSeries.length} snapshotów)`));
-  pricePanel.appendChild(
-    priceSeries.length >= 2
-      ? renderSparkline(priceSeries, 720, 120)
-      : el("p", { class: "empty" }, "Za mało snapshotów żeby narysować historię."),
-  );
-  view.appendChild(pricePanel);
+  if (!isCompactDetail || priceSeries.length >= 2) {
+    const pricePanel = el("div", { class: "panel" });
+    pricePanel.appendChild(el("div", { class: "panel-header" }, `Historia ceny (${priceSeries.length} snapshotów)`));
+    pricePanel.appendChild(
+      priceSeries.length >= 2
+        ? renderSparkline(priceSeries, 720, 120)
+        : el("p", { class: "empty" }, "Za mało snapshotów żeby narysować historię."),
+    );
+    view.appendChild(pricePanel);
+  }
 
   // Timeline of changes
   const changes = filterVisibleChanges(query(
@@ -2156,7 +2249,8 @@ function viewChanges(view, params) {
     return;
   }
 
-  const table = el("table");
+  // Desktop: table
+  const table = el("table", { class: "changes-table" });
   table.appendChild(el("thead", {}, el("tr", {},
     el("th", {}, "Kiedy"),
     el("th", {}, "Pole"),
@@ -2176,9 +2270,30 @@ function viewChanges(view, params) {
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
-  const panel = el("div", { class: "panel" });
-  panel.appendChild(table);
-  view.appendChild(panel);
+  const tablePanel = el("div", { class: "panel changes-desktop" });
+  tablePanel.appendChild(table);
+  view.appendChild(tablePanel);
+
+  // Mobile: cards
+  const cards = el("div", { class: "changes-cards" });
+  for (const r of rows) {
+    const card = el("div", { class: "change-card", onclick: () => navigate(`#/listing/${r.listing_id}`) },
+      el("div", { class: "change-card-header" },
+        el("span", { class: "change-card-title" }, r.title || r.listing_id),
+        el("span", { class: "change-card-time muted" }, formatRelative(r.created_at)),
+      ),
+      el("div", { class: "change-card-body" },
+        el("span", { class: "field" }, r.field_name),
+        el("span", { class: "change-card-diff" },
+          el("span", { class: "change-old" }, renderDiffSide("old", r.old_value, r.new_value, r.field_name, { compactMultiline: true })),
+          el("span", { class: "change-card-arrow" }, "→"),
+          el("span", { class: "change-new" }, renderDiffSide("new", r.new_value, r.old_value, r.field_name, { compactMultiline: true })),
+        ),
+      ),
+    );
+    cards.appendChild(card);
+  }
+  view.appendChild(cards);
 }
 
 function viewRuns(view) {
@@ -2699,6 +2814,9 @@ function sanitizeDescriptionNode(node) {
   }
   for (const child of Array.from(node.childNodes)) {
     appendDescriptionNode(clean, sanitizeDescriptionNode(child));
+  }
+  if ((tag === "p" || tag === "div") && !clean.textContent?.replace(/\u00a0/g, " ").trim()) {
+    return null;
   }
   return clean;
 }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Car Market Monitor</title>
-    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./style.css?v=20260412-mobile-menu" />
     <script>
       // Inline żeby uniknąć FOUC: ustawiamy motyw zanim CSS się zaaplikuje.
       (function () {
@@ -18,23 +18,35 @@
   </head>
   <body>
     <header class="topbar">
-      <nav>
+      <button
+        id="nav-toggle"
+        type="button"
+        class="nav-toggle"
+        aria-expanded="false"
+        aria-controls="topbar-nav"
+        aria-label="Otwórz menu"
+      >
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <nav id="topbar-nav">
         <a href="#/" data-route="">Home</a>
         <a href="#/activity" data-route="#/activity">Activity</a>
         <a href="#/listings" data-route="#/listings">Listings</a>
         <a href="#/watchlist" data-route="#/watchlist" data-watchlist-link>Watchlist</a>
         <a href="#/changes" data-route="#/changes">Changes</a>
         <a href="#/runs" data-route="#/runs">Runs</a>
+        <button id="theme-toggle" type="button" class="theme-toggle">Dark</button>
       </nav>
       <div class="topbar-right">
         <span id="db-status" class="status">loading…</span>
-        <button id="theme-toggle" type="button" class="theme-toggle">Dark</button>
       </div>
     </header>
     <main id="view">
       <p class="loading">Wczytuję bazę…</p>
     </main>
     <script src="./sql-wasm.js"></script>
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./app.js?v=20260412-mobile-menu"></script>
   </body>
 </html>

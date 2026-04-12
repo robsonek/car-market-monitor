@@ -47,7 +47,7 @@ html, body {
 }
 
 a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a:hover { opacity: 0.75; }
 
 .topbar {
   display: flex;
@@ -61,16 +61,51 @@ a:hover { text-decoration: underline; }
   z-index: 10;
 }
 
-.topbar nav { display: flex; gap: 18px; }
+.nav-toggle {
+  display: none;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.nav-toggle:hover {
+  background: var(--border);
+}
+.nav-toggle span {
+  display: block;
+  width: 16px;
+  height: 2px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+.nav-toggle span + span {
+  margin-top: 3px;
+}
+
+.topbar nav { display: flex; align-items: center; gap: 6px; }
 .topbar nav a {
   color: var(--text);
   font-weight: 500;
-  padding: 4px 0;
-  border-bottom: 2px solid transparent;
+  text-decoration: none;
+  padding: 5px 12px;
+  border-radius: 8px;
+  transition: background 0.15s, color 0.15s;
+}
+.topbar nav a:hover {
+  background: var(--border);
 }
 .topbar nav a.active {
   color: var(--accent);
-  border-bottom-color: var(--accent);
+  background: var(--accent-bg);
+}
+.topbar nav .theme-toggle {
+  margin-left: auto;
 }
 
 .status {
@@ -570,8 +605,8 @@ button.secondary {
 }
 .watchlist-remove-link:hover {
   opacity: 1;
-  text-decoration: underline;
 }
+
 
 /* Kontrolki paginacji pod tabelą listings. Układ: [prev] [indicator] [next]
    z indykatorem wycentrowanym przez margin auto. Disabled-state używa
@@ -647,6 +682,22 @@ button.secondary {
   font-size: 13px;
   line-height: 1.55;
   color: var(--text);
+}
+.description-body.is-collapsed {
+  position: relative;
+  max-height: 16.8em;
+  overflow: hidden;
+}
+.description-body.is-collapsed::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 88px;
+  background: linear-gradient(180deg, rgba(247, 248, 250, 0), var(--panel));
+  pointer-events: none;
+}
+:root[data-theme="dark"] .description-body.is-collapsed::after {
+  background: linear-gradient(180deg, rgba(26, 31, 41, 0), var(--panel));
 }
 
 .description-body > :first-child { margin-top: 0; }
@@ -863,14 +914,24 @@ button.secondary {
    opens an in-app lightbox with keyboard navigation instead of throwing the
    user into a raw CDN tab. */
 .listing-gallery {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 10px;
   padding: 14px 16px;
 }
+.panel-actions {
+  padding: 0 16px 14px;
+  display: flex;
+  justify-content: center;
+}
+.detail-section-toggle {
+  min-height: 40px;
+  min-width: min(100%, 260px);
+}
 .gallery-item {
   display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
   overflow: hidden;
   border-radius: 6px;
   background: var(--input-bg);
@@ -894,6 +955,9 @@ button.secondary {
 }
 .gallery-item img {
   display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 body.gallery-lightbox-open {
@@ -1207,6 +1271,56 @@ body.gallery-lightbox-open {
 .price-drop { color: var(--green); font-weight: 600; }
 .price-rise { color: var(--red); font-weight: 600; }
 
+/* Changes: cards (mobile) vs table (desktop) */
+.changes-cards { display: none; }
+
+.change-card {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.change-card:last-child { border-bottom: none; }
+.change-card:hover { background: var(--hover); }
+.change-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.change-card-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.change-card-time {
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.change-card-body {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.change-card-diff {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.change-card-arrow {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
 @media (max-width: 720px) {
   /* Force single column on phones; featured search row also collapses to one
      column so title search and seller search stack naturally. */
@@ -1219,45 +1333,168 @@ body.gallery-lightbox-open {
      phones and gracefully wraps the right-side controls underneath on
      very narrow screens. */
   .topbar {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
     gap: 8px;
     padding: 10px 12px;
   }
-  .topbar nav { gap: 14px; }
-  .topbar-right { gap: 10px; }
+  .nav-toggle {
+    display: inline-grid;
+    place-content: center;
+  }
+  .topbar.is-menu-open .nav-toggle span:nth-child(1) {
+    transform: translateY(5px) rotate(45deg);
+  }
+  .topbar.is-menu-open .nav-toggle span:nth-child(2) {
+    opacity: 0;
+  }
+  .topbar.is-menu-open .nav-toggle span:nth-child(3) {
+    transform: translateY(-5px) rotate(-45deg);
+  }
+  .topbar nav {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 12px;
+    right: 12px;
+    z-index: 20;
+    display: none;
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+  }
+  .topbar.is-menu-open nav {
+    display: flex;
+  }
+  .topbar nav a {
+    display: block;
+    padding: 10px 12px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    font-size: 15px;
+    text-align: left;
+  }
+  .topbar nav a:hover {
+    background: var(--border);
+  }
+  .topbar nav a.active {
+    color: var(--accent);
+    background: var(--accent-bg);
+  }
+  .topbar nav .theme-toggle {
+    margin-left: 0;
+    margin-top: 4px;
+    padding-top: 10px;
+    width: 100%;
+    display: block;
+    padding: 10px 12px;
+    border: none;
+    border-top: 1px solid var(--border);
+    border-radius: 0 0 10px 10px;
+    background: transparent;
+    font-size: 15px;
+    text-align: left;
+    color: var(--text);
+  }
+  .topbar nav .theme-toggle:hover {
+    background: var(--border);
+  }
+  .topbar-right {
+    justify-self: end;
+    align-self: start;
+    gap: 0;
+  }
   /* Ukrywamy "db 33 MB · last run 18m temu" na mobile — nie mieści się
      w wierszu z nawigacją i theme toggle'em, a informacja jest
      diagnostyczna (rzadko potrzebna w trakcie przeglądania). */
   .topbar #db-status { display: none; }
+
+  /* Changes: show cards, hide table */
+  .changes-desktop { display: none; }
+  .changes-cards {
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
 
   /* Tighter gutter on phones — 20px symmetric padding eats 40px of a
      375px screen. */
   main { padding: 12px; }
 
   .detail-header {
-    padding: 16px;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 14px;
     border-radius: 14px;
   }
   .detail-title-row h1 {
+    font-size: clamp(22px, 6.4vw, 26px);
+    line-height: 1.1;
+    letter-spacing: -0.025em;
     max-width: none;
   }
   .detail-title-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
     width: 100%;
-    justify-content: stretch;
   }
   .detail-action-link,
   .detail-inline-link,
   .detail-title-actions .watch-toggle {
-    flex: 1 1 180px;
+    min-height: 42px;
+    min-width: 0;
+    padding: 0 12px;
+    font-size: 12px;
+    text-align: center;
   }
+  .detail-title-actions > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+  .detail-header .meta { gap: 8px; }
   .detail-meta-chip {
     max-width: 100%;
+    min-height: 0;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border-radius: 12px;
   }
+  .detail-meta-label { font-size: 9px; }
   .detail-meta-value {
     max-width: 100%;
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .detail-meta-chip--mono .detail-meta-value {
+    font-size: 11px;
+    word-break: break-all;
   }
 
   h1 { font-size: 20px; }
+
+  /* iOS Safari zooms focused form controls below 16px. Bump only the mobile
+     filter UI, not the dense data tables, so the listings screen stays usable
+     without unexpected viewport zoom jumps. */
+  .filters label { font-size: 11px; }
+  .filters input:not([type="checkbox"]):not([type="radio"]),
+  .filters select,
+  .filters .checkbox-field .checkbox-text {
+    font-size: 16px;
+  }
 
   /* Tables: smaller font + tighter padding, and — crucially — nowrap so
      columns keep their natural width and the .panel wrapper scrolls
@@ -1292,6 +1529,16 @@ body.gallery-lightbox-open {
   .listing-gallery {
     padding: 10px 12px;
     gap: 6px;
+  }
+  .listing-gallery.is-collapsed .gallery-item:nth-child(n + 7) {
+    display: none;
+  }
+  .panel-actions {
+    padding: 0 12px 12px;
+  }
+  .detail-section-toggle {
+    width: 100%;
+    min-width: 0;
   }
 
   .gallery-lightbox {
