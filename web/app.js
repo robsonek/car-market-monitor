@@ -2501,7 +2501,7 @@ function panelTable(title, headers, rows, rowClickHandlers, emptyMsg) {
   rows.forEach((cells, i) => {
     const handler = rowClickHandlers && rowClickHandlers[i];
     const tr = el("tr", handler ? { onclick: (e) => { if (e.target.tagName !== "A") handler(); } } : { class: "no-click" },
-      ...cells.map((c) => el("td", {}, c instanceof Node ? c : String(c ?? "—"))),
+      ...cells.map((c) => el("td", {}, c instanceof Node ? c : String(c ?? "-"))),
     );
     tbody.appendChild(tr);
   });

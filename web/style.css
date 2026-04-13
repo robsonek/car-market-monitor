@@ -266,7 +266,7 @@ tbody tr.no-click { cursor: default; }
 tbody tr.no-click:hover { background: transparent; }
 
 td.num, th.num {
-  text-align: right;
+  text-align: left;
   font-variant-numeric: tabular-nums;
 }
 
