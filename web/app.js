@@ -844,6 +844,7 @@ function viewHome(view, params = {}) {
   const HOME_PRICE_CHANGE_SORT_COLUMNS = {
     when: "created_at",
     title: "lower(title)",
+    year: "year",
     old_price: "CAST(old_value AS REAL)",
     new_price: "CAST(new_value AS REAL)",
     change: "price_change_amount",
@@ -852,7 +853,7 @@ function viewHome(view, params = {}) {
   const priceChanges = query(
     state.db,
     `WITH recent_price_changes AS (
-       SELECT lc.created_at, lc.old_value, lc.new_value, l.id, l.title, l.listing_url,
+       SELECT lc.created_at, lc.old_value, lc.new_value, l.id, l.title, l.listing_url, l.year,
               (CAST(lc.new_value AS REAL) - CAST(lc.old_value AS REAL)) AS price_change_amount
        FROM listing_changes lc
        JOIN listings l ON l.id = lc.listing_id
@@ -874,6 +875,7 @@ function viewHome(view, params = {}) {
     [
       priceChangeSort.sortableTh("Kiedy", "when", { numeric: true }),
       priceChangeSort.sortableTh("Oferta", "title"),
+      priceChangeSort.sortableTh("Rok", "year", { numeric: true }),
       priceChangeSort.sortableTh("Z", "old_price", { numeric: true }),
       priceChangeSort.sortableTh("Na", "new_price", { numeric: true }),
       priceChangeSort.sortableTh("Zmiana", "change", { numeric: true }),
@@ -884,6 +886,7 @@ function viewHome(view, params = {}) {
       return [
         formatRelative(r.created_at),
         listingLink(r.id, r.title || r.id),
+        el("span", { class: "tabular" }, r.year ?? "-"),
         el("span", { class: "tabular" }, formatPrice(r.old_value)),
         el("span", { class: `tabular${changeClass}` }, formatPrice(r.new_value)),
         el("span", { class: `tabular${changeClass}` }, change.label),
@@ -904,13 +907,14 @@ function viewHome(view, params = {}) {
   const HOME_STATUS_SORT_COLUMNS = {
     when: "created_at",
     title: "lower(title)",
+    year: "year",
     price: "CAST(last_price_amount AS REAL)",
   };
   const disappearedSort = buildHomeTableSort("disappearedSort", "disappearedDir", HOME_STATUS_SORT_COLUMNS);
   const disappeared = query(
     state.db,
     `WITH recent_disappeared AS (
-       SELECT lc.created_at, l.id, l.title, l.last_price_amount
+       SELECT lc.created_at, l.id, l.title, l.last_price_amount, l.year
        FROM listing_changes lc JOIN listings l ON l.id = lc.listing_id
        WHERE lc.field_name = '__listing_status' AND lc.new_value = 'MISSING'
          AND l.is_active = 0
@@ -932,11 +936,13 @@ function viewHome(view, params = {}) {
     [
       disappearedSort.sortableTh("Kiedy", "when", { numeric: true }),
       disappearedSort.sortableTh("Oferta", "title"),
+      disappearedSort.sortableTh("Rok", "year", { numeric: true }),
       disappearedSort.sortableTh("Ostatnia cena", "price", { numeric: true }),
     ],
     disappeared.map((r) => [
       formatRelative(r.created_at),
       listingLink(r.id, r.title || r.id),
+      el("span", { class: "tabular" }, r.year ?? "-"),
       el("span", { class: "tabular" }, formatPrice(r.last_price_amount)),
     ]),
     disappeared.map((r) => () => navigate(`#/listing/${r.id}`)),
@@ -948,7 +954,7 @@ function viewHome(view, params = {}) {
   const appeared = query(
     state.db,
     `WITH recent_appeared AS (
-       SELECT lc.created_at, l.id, l.title, l.last_price_amount
+       SELECT lc.created_at, l.id, l.title, l.last_price_amount, l.year
        FROM listing_changes lc JOIN listings l ON l.id = lc.listing_id
        WHERE lc.field_name = '__listing_created'
        ORDER BY lc.created_at DESC, l.title ASC
@@ -963,11 +969,13 @@ function viewHome(view, params = {}) {
     [
       appearedSort.sortableTh("Kiedy", "when", { numeric: true }),
       appearedSort.sortableTh("Oferta", "title"),
+      appearedSort.sortableTh("Rok", "year", { numeric: true }),
       appearedSort.sortableTh("Cena", "price", { numeric: true }),
     ],
     appeared.map((r) => [
       formatRelative(r.created_at),
       listingLink(r.id, r.title || r.id),
+      el("span", { class: "tabular" }, r.year ?? "-"),
       el("span", { class: "tabular" }, formatPrice(r.last_price_amount)),
     ]),
     appeared.map((r) => () => navigate(`#/listing/${r.id}`)),
@@ -1052,13 +1060,14 @@ function viewActivity(view, params = {}) {
   const priceChangeSortColumns = {
     when: "created_at",
     title: "lower(title)",
+    year: "year",
     old_price: "CAST(old_value AS REAL)",
     new_price: "CAST(new_value AS REAL)",
     change: "price_change_amount",
   };
   const priceChangeSort = buildActivitySort("dropsSort", "dropsDir", "dropsPage", priceChangeSortColumns);
   const priceChangePage = readPageParam("dropsPage");
-  const priceChangeBaseSql = `SELECT lc.created_at, lc.old_value, lc.new_value, l.id, l.title, l.listing_url,
+  const priceChangeBaseSql = `SELECT lc.created_at, lc.old_value, lc.new_value, l.id, l.title, l.listing_url, l.year,
                                      (CAST(lc.new_value AS REAL) - CAST(lc.old_value AS REAL)) AS price_change_amount
                               FROM listing_changes lc
                               JOIN listings l ON l.id = lc.listing_id
@@ -1080,6 +1089,7 @@ function viewActivity(view, params = {}) {
     [
       priceChangeSort.sortableTh("Kiedy", "when", { numeric: true }),
       priceChangeSort.sortableTh("Oferta", "title"),
+      priceChangeSort.sortableTh("Rok", "year", { numeric: true }),
       priceChangeSort.sortableTh("Z", "old_price", { numeric: true }),
       priceChangeSort.sortableTh("Na", "new_price", { numeric: true }),
       priceChangeSort.sortableTh("Zmiana", "change", { numeric: true }),
@@ -1090,6 +1100,7 @@ function viewActivity(view, params = {}) {
       return [
         formatRelative(r.created_at),
         listingLink(r.id, r.title || r.id),
+        el("span", { class: "tabular" }, r.year ?? "-"),
         el("span", { class: "tabular" }, formatPrice(r.old_value)),
         el("span", { class: `tabular${changeClass}` }, formatPrice(r.new_value)),
         el("span", { class: `tabular${changeClass}` }, change.label),
@@ -1103,11 +1114,12 @@ function viewActivity(view, params = {}) {
   const statusSortColumns = {
     when: "created_at",
     title: "lower(title)",
+    year: "year",
     price: "CAST(last_price_amount AS REAL)",
   };
   const disappearedSort = buildActivitySort("disappearedSort", "disappearedDir", "disappearedPage", statusSortColumns);
   const disappearedPage = readPageParam("disappearedPage");
-  const disappearedBaseSql = `SELECT lc.created_at, l.id, l.title, l.last_price_amount
+  const disappearedBaseSql = `SELECT lc.created_at, l.id, l.title, l.last_price_amount, l.year
                               FROM listing_changes lc
                               JOIN listings l ON l.id = lc.listing_id
                               WHERE lc.field_name = '__listing_status' AND lc.new_value = 'MISSING'
@@ -1130,11 +1142,13 @@ function viewActivity(view, params = {}) {
     [
       disappearedSort.sortableTh("Kiedy", "when", { numeric: true }),
       disappearedSort.sortableTh("Oferta", "title"),
+      disappearedSort.sortableTh("Rok", "year", { numeric: true }),
       disappearedSort.sortableTh("Ostatnia cena", "price", { numeric: true }),
     ],
     disappeared.rows.map((r) => [
       formatRelative(r.created_at),
       listingLink(r.id, r.title || r.id),
+      el("span", { class: "tabular" }, r.year ?? "-"),
       el("span", { class: "tabular" }, formatPrice(r.last_price_amount)),
     ]),
     disappeared.rows.map((r) => () => navigate(`#/listing/${r.id}`)),
@@ -1144,7 +1158,7 @@ function viewActivity(view, params = {}) {
 
   const appearedSort = buildActivitySort("appearedSort", "appearedDir", "appearedPage", statusSortColumns);
   const appearedPage = readPageParam("appearedPage");
-  const appearedBaseSql = `SELECT lc.created_at, l.id, l.title, l.last_price_amount
+  const appearedBaseSql = `SELECT lc.created_at, l.id, l.title, l.last_price_amount, l.year
                            FROM listing_changes lc
                            JOIN listings l ON l.id = lc.listing_id
                            WHERE lc.field_name = '__listing_created'`;
@@ -1160,11 +1174,13 @@ function viewActivity(view, params = {}) {
     [
       appearedSort.sortableTh("Kiedy", "when", { numeric: true }),
       appearedSort.sortableTh("Oferta", "title"),
+      appearedSort.sortableTh("Rok", "year", { numeric: true }),
       appearedSort.sortableTh("Cena", "price", { numeric: true }),
     ],
     appeared.rows.map((r) => [
       formatRelative(r.created_at),
       listingLink(r.id, r.title || r.id),
+      el("span", { class: "tabular" }, r.year ?? "-"),
       el("span", { class: "tabular" }, formatPrice(r.last_price_amount)),
     ]),
     appeared.rows.map((r) => () => navigate(`#/listing/${r.id}`)),
