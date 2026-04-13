@@ -318,6 +318,23 @@ CREATE TABLE IF NOT EXISTS listing_changes (
   FOREIGN KEY (snapshot_id) REFERENCES listing_snapshots(id)
 );
 
+-- ---------- relisting detection ----------
+-- Powiazania miedzy ogloszeniami tego samego pojazdu wystawionymi pod
+-- roznymi external_id (sprzedawca zakonczyl i wystawil ponownie).
+
+CREATE TABLE IF NOT EXISTS listing_relistings (
+  id TEXT PRIMARY KEY,
+  old_listing_id TEXT NOT NULL,
+  new_listing_id TEXT NOT NULL,
+  match_type TEXT NOT NULL,       -- 'vin', 'registration', 'fuzzy'
+  match_details TEXT,             -- JSON: {"vin":"WBA..."} lub {"make":"porsche","model":"taycan",...}
+  detected_at TEXT NOT NULL,
+  run_id TEXT,                    -- NULL dla retroaktywnego wykrycia
+  UNIQUE (old_listing_id, new_listing_id),
+  FOREIGN KEY (old_listing_id) REFERENCES listings(id),
+  FOREIGN KEY (new_listing_id) REFERENCES listings(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_sources_active ON sources(is_active);
 CREATE INDEX IF NOT EXISTS idx_runs_source_started ON scrape_runs(source_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_batch_started ON scrape_runs(batch_id, started_at DESC);
@@ -330,3 +347,7 @@ CREATE INDEX IF NOT EXISTS idx_listings_mileage ON listings(mileage);
 CREATE INDEX IF NOT EXISTS idx_listings_fuel_type ON listings(fuel_type);
 CREATE INDEX IF NOT EXISTS idx_snapshots_listing_captured ON listing_snapshots(listing_id, captured_at DESC);
 CREATE INDEX IF NOT EXISTS idx_changes_listing_created ON listing_changes(listing_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_relistings_old ON listing_relistings(old_listing_id);
+CREATE INDEX IF NOT EXISTS idx_relistings_new ON listing_relistings(new_listing_id);
+CREATE INDEX IF NOT EXISTS idx_relistings_detected ON listing_relistings(detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_listings_registration ON listings(registration);

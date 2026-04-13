@@ -422,6 +422,108 @@ function buildDetailColumns(detail) {
   }
 }
 
+// ---------- relisting detection ----------
+
+// VIN must be 17 alphanumeric chars (no I/O/Q), not all-same, not all-digits,
+// not all-letters, and not a known placeholder like ZAPYTAJSPRZEDAWCE.
+export function isValidVin(vin) {
+  if (!vin || vin.length !== 17) return false;
+  if (/[^A-Za-z0-9]/.test(vin)) return false;
+  if (/[IOQioq]/.test(vin)) return false;
+  const upper = vin.toUpperCase();
+  if (new Set(upper).size === 1) return false;
+  if (/^[0-9]+$/.test(upper)) return false;
+  if (/^[A-Z]+$/.test(upper)) return false;
+  return true;
+}
+
+// Polish plates: 2-3 letter district code + 4-5 alphanumeric chars, optionally
+// with a space. Must mix letters and digits (pure-letter or pure-digit = fake).
+// Rejects placeholders (all-same char, known words, VINs pasted as plates).
+export function isValidRegistration(reg) {
+  if (!reg || reg.length < 4) return false;
+  const norm = reg.replace(/\s+/g, "").toUpperCase();
+  if (norm.length < 4 || norm.length > 8) return false;
+  if (/[^A-Z0-9]/.test(norm)) return false;
+  if (new Set(norm).size === 1) return false;
+  if (/^[A-Z]+$/.test(norm)) return false;
+  if (/^[0-9]+$/.test(norm)) return false;
+  return true;
+}
+
+function detectRelistings(db, runId, newListingId, sourceId, detail, capturedAt) {
+  const matched = new Set(); // old listing IDs already linked at higher confidence
+
+  // 1. VIN match (highest confidence)
+  if (detail.vin && isValidVin(detail.vin)) {
+    const rows = db
+      .prepare(
+        `SELECT id FROM listings
+         WHERE vin = ? AND id != ? AND is_active = 0 AND source_id = ?`,
+      )
+      .all(detail.vin, newListingId, sourceId);
+    for (const row of rows) {
+      db.prepare(
+        `INSERT OR IGNORE INTO listing_relistings
+           (id, old_listing_id, new_listing_id, match_type, match_details, detected_at, run_id)
+         VALUES (?, ?, ?, 'vin', ?, ?, ?)`,
+      ).run(randomId(), row.id, newListingId, JSON.stringify({ vin: detail.vin }), capturedAt, runId);
+      matched.add(row.id);
+    }
+  }
+
+  // 2. Registration match (medium confidence)
+  if (detail.registration && isValidRegistration(detail.registration)) {
+    const rows = db
+      .prepare(
+        `SELECT id FROM listings
+         WHERE registration = ? AND id != ? AND is_active = 0 AND source_id = ?`,
+      )
+      .all(detail.registration, newListingId, sourceId);
+    for (const row of rows) {
+      if (matched.has(row.id)) continue;
+      db.prepare(
+        `INSERT OR IGNORE INTO listing_relistings
+           (id, old_listing_id, new_listing_id, match_type, match_details, detected_at, run_id)
+         VALUES (?, ?, ?, 'registration', ?, ?, ?)`,
+      ).run(randomId(), row.id, newListingId, JSON.stringify({ registration: detail.registration }), capturedAt, runId);
+      matched.add(row.id);
+    }
+  }
+
+  // 3. Fuzzy match (low confidence) - same make+model+year+seller, optionally date_registration.
+  //    Skip if both have different valid VINs (clearly different cars from same dealer).
+  if (detail.params?.make && detail.params?.model && detail.params?.year && detail.seller_uuid) {
+    let sql = `SELECT id, vin FROM listings
+               WHERE make = ? AND model = ? AND year = ? AND seller_uuid = ?
+                 AND id != ? AND is_active = 0 AND source_id = ?`;
+    const params = [detail.params.make, detail.params.model, detail.params.year, detail.seller_uuid, newListingId, sourceId];
+    if (detail.date_registration) {
+      sql += ` AND date_registration = ?`;
+      params.push(detail.date_registration);
+    }
+    const rows = db.prepare(sql).all(...params);
+    const newVinValid = detail.vin && isValidVin(detail.vin);
+    const matchDetails = {
+      make: detail.params.make,
+      model: detail.params.model,
+      year: detail.params.year,
+      seller_uuid: detail.seller_uuid,
+    };
+    if (detail.date_registration) matchDetails.date_registration = detail.date_registration;
+    for (const row of rows) {
+      if (matched.has(row.id)) continue;
+      // Both have valid but different VINs -> different cars, not a relisting
+      if (newVinValid && row.vin && isValidVin(row.vin) && row.vin !== detail.vin) continue;
+      db.prepare(
+        `INSERT OR IGNORE INTO listing_relistings
+           (id, old_listing_id, new_listing_id, match_type, match_details, detected_at, run_id)
+         VALUES (?, ?, ?, 'fuzzy', ?, ?, ?)`,
+      ).run(randomId(), row.id, newListingId, JSON.stringify(matchDetails), capturedAt, runId);
+    }
+  }
+}
+
 // ---------- per-listing apply ----------
 
 function applyDetail(db, runId, sourceId, detail, card, capturedAt, byExternalId, summary) {
@@ -450,6 +552,7 @@ function applyDetail(db, runId, sourceId, detail, card, capturedAt, byExternalId
       new_value: "ACTIVE",
       created_at: capturedAt,
     });
+    detectRelistings(db, runId, listingId, sourceId, detail, capturedAt);
     summary.new_listings_count += 1;
     return;
   }

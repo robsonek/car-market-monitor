@@ -285,6 +285,13 @@ td.num, th.num {
 .badge-active { color: var(--green); background: var(--green-bg); }
 .badge-inactive { color: var(--muted); background: var(--bg); border: 1px solid var(--border); }
 .badge-running { color: var(--accent); background: var(--accent-bg); }
+.badge-relisting { color: var(--yellow); background: var(--yellow-bg); }
+.badge-match-vin { color: var(--green); background: var(--green-bg); }
+.badge-match-reg { color: var(--yellow); background: var(--yellow-bg); }
+.badge-match-fuzzy { color: var(--muted); background: var(--bg); border: 1px solid var(--border); }
+.price-up { color: var(--red); }
+.price-down { color: var(--green); }
+.mileage-rollback { color: var(--red); font-weight: 600; }
 
 .filters {
   background: var(--panel);
