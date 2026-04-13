@@ -2155,13 +2155,16 @@ function viewListingDetail(view, id) {
   // Price history
   const snapshots = query(
     state.db,
-    `SELECT id, run_id, snapshot_hash, captured_at, price_amount
+    `SELECT id, run_id, snapshot_hash, captured_at, price_amount, mileage
      FROM listing_snapshots WHERE listing_id = ? ORDER BY captured_at ASC`,
     [id],
   );
   const priceSeries = snapshots
     .map((s) => ({ t: new Date(s.captured_at).getTime(), v: Number(s.price_amount) }))
     .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
+  const mileageSeries = snapshots
+    .map((s) => ({ t: new Date(s.captured_at).getTime(), v: Number(s.mileage) }))
+    .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.v > 0);
 
   if (!isCompactDetail || priceSeries.length >= 2) {
     const pricePanel = el("div", { class: "panel" });
@@ -2172,6 +2175,17 @@ function viewListingDetail(view, id) {
         : el("p", { class: "empty" }, "Za mało snapshotów żeby narysować historię."),
     );
     view.appendChild(pricePanel);
+  }
+
+  if (!isCompactDetail || mileageSeries.length >= 2) {
+    const mileagePanel = el("div", { class: "panel" });
+    mileagePanel.appendChild(el("div", { class: "panel-header" }, `Historia przebiegu (${mileageSeries.length} snapshotów)`));
+    mileagePanel.appendChild(
+      mileageSeries.length >= 2
+        ? renderSparkline(mileageSeries, 720, 120, { color: "#10b981", formatLabel: formatMileage })
+        : el("p", { class: "empty" }, "Za mało snapshotów żeby narysować historię."),
+    );
+    view.appendChild(mileagePanel);
   }
 
   // Timeline of changes
@@ -2916,12 +2930,12 @@ function renderPhoneList(numbers) {
   return wrap;
 }
 
-function renderSparkline(series, width, height) {
+function renderSparkline(series, width, height, { color = "#2563eb", formatLabel = formatPrice } = {}) {
   // SVG with line + dots + min/max labels.
   if (series.length < 2) return el("p", { class: "empty" }, "Brak danych.");
-  const yMaxLabel = formatPrice(Math.max(...series.map((p) => p.v)));
-  const yMinLabel = formatPrice(Math.min(...series.map((p) => p.v)));
-  // Left gutter must fit the widest PLN label; otherwise the first point/line
+  const yMaxLabel = formatLabel(Math.max(...series.map((p) => p.v)));
+  const yMinLabel = formatLabel(Math.min(...series.map((p) => p.v)));
+  // Left gutter must fit the widest label; otherwise the first point/line
   // sits on top of the text (visible for short series with a high first point).
   const padLeft = Math.max(72, Math.min(width * 0.26, Math.max(yMaxLabel.length, yMinLabel.length) * 8 + 16));
   const padRight = 20;
@@ -2938,13 +2952,13 @@ function renderSparkline(series, width, height) {
   const sy = (v) => height - padY - ((v - yMin) / yRange) * (height - padY * 2);
 
   const path = series.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.t).toFixed(1)},${sy(p.v).toFixed(1)}`).join(" ");
-  const dots = series.map((p) => `<circle cx="${sx(p.t).toFixed(1)}" cy="${sy(p.v).toFixed(1)}" r="3" fill="#2563eb" />`).join("");
+  const dots = series.map((p) => `<circle cx="${sx(p.t).toFixed(1)}" cy="${sy(p.v).toFixed(1)}" r="3" fill="${color}" />`).join("");
 
   const svg = `
     <svg class="sparkline" viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet">
       <text x="8" y="${(padY + 4).toFixed(0)}" font-size="11" fill="#6b7280">${yMaxLabel}</text>
       <text x="8" y="${height - 4}" font-size="11" fill="#6b7280">${yMinLabel}</text>
-      <path d="${path}" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+      <path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
       ${dots}
     </svg>
   `;
