@@ -123,7 +123,7 @@ W folderze `/web/` żyje statyczny dashboard SPA, który ładuje `db/car-market-
 
 **Co potrafi:**
 
-- **Home** - skrót ostatniego runu, top spadki cen z ostatnich 30 dni, świeżo zniknięte oferty (filtruje po aktualnym `is_active = 0` + ostatniej zmianie statusu, żeby reaktywowane nie pojawiały się jako "zniknięte"), świeżo dodane oferty, statystyki (aktywne / zniknięte / snapshoty / runy / źródła).
+- **Home** - skrót ostatniego runu, ostatnie zmiany cen z ostatnich 30 dni (spadki i wzrosty), świeżo zniknięte oferty (filtruje po aktualnym `is_active = 0` + ostatniej zmianie statusu, żeby reaktywowane nie pojawiały się jako "zniknięte"), świeżo dodane oferty, statystyki (aktywne / zniknięte / snapshoty / runy / źródła).
 - **Listings** - tabela z filtrami: źródło, status (aktywne/zniknięte), stan (nowy/używany), paliwo, nadwozie, skrzynia, kraj pochodzenia, zakresy (rok, cena, przebieg, moc), tristate condition (uszkodzony, bezwypadkowy, książka serwisowa), search po tytule i opisie z multi-word AND. Filtry trzymane w URL hash (możesz zbookmarkować np. "Taycan ≤ 350k zł, ≤ 50k km, electric, ≥ 500 KM"). Wszystkie kolumny w tabeli klikalne (sortowanie).
 - **Listing detail** - aktualny stan oferty + stat cards (cena, rok, przebieg, paliwo, nadwozie, skrzynia, moc, opcjonalnie bateria/zasięg dla EV) + **panel Identyfikacja** (pola identyfikacyjne i kontaktowe) + panel "Stan i historia" + sparkline ceny w czasie + timeline wszystkich `listing_changes` + lista snapshotów z toggle JSON viewerem.
 - **Changes** - globalny changelog z filtrami: źródło, konkretne pole (np. tylko `price.value`), data od, search po tytule, checkbox "Pokaż nowe ogłoszenia" (domyślnie wyłączony, bo `__listing_created` zalewa feed). Klik w wiersz przenosi do detalu.
