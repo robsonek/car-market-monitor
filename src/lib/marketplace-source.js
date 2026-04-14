@@ -51,8 +51,7 @@ export async function scrapeMarketplaceListingCards(url, fetchImpl = fetch) {
   // them to is_active=0 after two consecutive misses. With explicit
   // `search[order]=created_at:desc` the same query returns 435 unique / 0 dupes.
   // We honor user-specified order if present.
-  const firstPageHtml = await fetchHtml(fetchImpl, pageUrl(normalizedUrl, 1));
-  const firstSearch = extractAdvertSearch(firstPageHtml);
+  const firstSearch = await fetchListingPage(fetchImpl, pageUrl(normalizedUrl, 1));
   const totalCount = Number(firstSearch.totalCount || 0);
   const pageSize = Number(firstSearch.pageInfo?.pageSize || firstSearch.edges?.length || 1);
   const reportedPageCount = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -73,8 +72,7 @@ export async function scrapeMarketplaceListingCards(url, fetchImpl = fetch) {
     try {
       const url = pageUrl(normalizedUrl, page);
       console.log(`[discovery] fetching page ${page}/${maxPage}: ${url}`);
-      const html = await fetchHtml(fetchImpl, url);
-      const searchPayload = extractAdvertSearch(html);
+      const searchPayload = await fetchListingPage(fetchImpl, url);
       pageCards = extractListingCards(searchPayload, page);
       console.log(`[discovery] page ${page}: ${pageCards.length} cards`);
     } catch (error) {
@@ -191,6 +189,25 @@ async function fetchHtml(fetchImpl, url) {
       if (!retryable || attempt > FETCH_MAX_RETRIES) throw error;
       const delay = FETCH_RETRY_DELAY_MS * attempt;
       console.log(`[fetch] HTTP ${error.status} for ${url} — retry ${attempt}/${FETCH_MAX_RETRIES} in ${delay}ms`);
+      await sleep(delay);
+    }
+  }
+}
+
+// Listing pages czasem wracają z HTTP 200 i poprawnym __NEXT_DATA__, ale bez
+// advertSearch w urqlState (prawdopodobnie bot-challenge albo throttling po
+// stronie upstreamu, który renderuje skeleton bez danych). Z punktu widzenia
+// scrape'u to jest transient — ponowne uderzenie za chwilę zwraca normalny
+// payload. Retryujemy na parse failure tak samo jak fetchHtml retryuje na 5xx.
+async function fetchListingPage(fetchImpl, url) {
+  for (let attempt = 1; attempt <= FETCH_MAX_RETRIES + 1; attempt++) {
+    const html = await fetchHtml(fetchImpl, url);
+    try {
+      return extractAdvertSearch(html);
+    } catch (error) {
+      if (attempt > FETCH_MAX_RETRIES) throw error;
+      const delay = FETCH_RETRY_DELAY_MS * attempt;
+      console.log(`[fetch] parse failed for ${url} (${error.message}) — retry ${attempt}/${FETCH_MAX_RETRIES} in ${delay}ms`);
       await sleep(delay);
     }
   }

@@ -18,6 +18,7 @@ import {
   withEmptyEdges,
   withPagination,
   withSlicedEdges,
+  withoutAdvertSearch,
 } from "../_helpers/listing-mutate.js";
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures");
@@ -174,4 +175,45 @@ test("listing discovery rejects when __NEXT_DATA__ is missing from upstream payl
     () => scrapeListingCards(SOURCE_URL, stub),
     (err) => err instanceof HttpError && err.status === 502,
   );
+});
+
+test("listing discovery retries first page when __NEXT_DATA__ lacks advertSearch", async () => {
+  const html = withPagination(withSlicedEdges(LISTING_HTML, 4), { totalCount: 4, pageSize: 4 });
+  let firstPageAttempts = 0;
+  const { stub, calls } = makeFetchStub({
+    [PAGE_1]: () => {
+      firstPageAttempts += 1;
+      return new StubResponse({
+        body: firstPageAttempts === 1 ? withoutAdvertSearch(html) : html,
+      });
+    },
+    [pageN(2)]: new StubResponse({ body: EMPTY_EDGES_HTML }),
+  });
+
+  const result = await scrapeListingCards(SOURCE_URL, stub);
+
+  assert.equal(result.unique_cards.length, 4);
+  assert.equal(calls.filter((url) => url === PAGE_1).length, 2, "first page should be retried once");
+});
+
+test("listing discovery retries mid-pagination when __NEXT_DATA__ lacks advertSearch", async () => {
+  const page1 = withPagination(withSlicedEdges(LISTING_HTML, 4), { totalCount: 8, pageSize: 4 });
+  const page2 = withPagination(withSlicedEdges(LISTING_HTML, 4), { totalCount: 8, pageSize: 4 });
+  let page2Attempts = 0;
+  const { stub, calls } = makeFetchStub({
+    [PAGE_1]: new StubResponse({ body: page1 }),
+    [pageN(2)]: () => {
+      page2Attempts += 1;
+      return new StubResponse({
+        body: page2Attempts === 1 ? withoutAdvertSearch(page2) : page2,
+      });
+    },
+    [pageN(3)]: new StubResponse({ body: EMPTY_EDGES_HTML }),
+  });
+
+  const result = await scrapeListingCards(SOURCE_URL, stub);
+
+  assert.equal(result.metadata.page_count, 2);
+  assert.equal(result.metadata.raw_row_count, 8);
+  assert.equal(calls.filter((url) => url === pageN(2)).length, 2, "page 2 should be retried once");
 });

@@ -75,3 +75,25 @@ export function withFirstEdge(html, { id, url }) {
     if (url != null) search.edges[0].node.url = url;
   });
 }
+
+// Removes advertSearch from every urqlState payload while leaving __NEXT_DATA__
+// structurally valid. This simulates the observed upstream variant where the
+// page returns 200 + Next.js bootstrap data, but the listing GraphQL cache is
+// missing (e.g. bot-challenge/throttled skeleton).
+export function withoutAdvertSearch(html) {
+  const data = parseListingNextData(html);
+  const urqlState = data.props.pageProps.urqlState;
+  for (const [, state] of Object.entries(urqlState)) {
+    let payload;
+    try {
+      payload = JSON.parse(state.data || "{}");
+    } catch {
+      continue;
+    }
+    if (!payload?.advertSearch) continue;
+    delete payload.advertSearch;
+    state.data = JSON.stringify(payload);
+  }
+  const json = JSON.stringify(data).replace(/<\/script/gi, "<\\/script");
+  return html.replace(NEXT_DATA_RE, () => `<script id="__NEXT_DATA__" type="application/json">${json}</script>`);
+}
