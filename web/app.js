@@ -27,6 +27,8 @@ const state = {
   watchlistEntries: [],
   galleryLightbox: null,
   closeTopbarMenu: null,
+  scrollPositions: new Map(),
+  pendingNavigationScrollMode: null,
 };
 
 // ---------- bootstrap ----------
@@ -106,7 +108,7 @@ async function init() {
     state.sizeBytes = loaded.sizeBytes;
     const lastRun = query(state.db, "SELECT MAX(finished_at) AS ts FROM scrape_runs")[0]?.ts;
     document.getElementById("db-status").textContent = `db ${formatBytes(state.sizeBytes)} · last run ${lastRun ? formatRelative(lastRun) : "—"}`;
-    route();
+    route({ scrollMode: "top" });
   } catch (error) {
     document.getElementById("view").innerHTML = "";
     document.getElementById("view").appendChild(
@@ -179,7 +181,11 @@ function initTopbarMenu() {
   });
 
   nav.addEventListener("click", (event) => {
-    if (event.target.closest("a") || event.target.closest(".theme-toggle")) closeMenu();
+    if (event.target.closest("a")) {
+      closeMenu();
+      return;
+    }
+    if (event.target.closest(".theme-toggle")) closeMenu();
   });
 
   document.addEventListener("click", (event) => {
@@ -334,6 +340,10 @@ function clearView() {
   view.innerHTML = "";
   view.className = "";
   return view;
+}
+
+function clickStartedInInteractiveElement(event) {
+  return event.target instanceof Element && Boolean(event.target.closest("a, button"));
 }
 
 function normalizeGalleryIndex(index, length) {
@@ -600,6 +610,15 @@ function formatDate(iso) {
   return d.toLocaleString("pl-PL", { dateStyle: "short", timeStyle: "short" });
 }
 
+function escapeHtml(text) {
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function formatRelative(iso) {
   if (!iso) return "—";
   const then = new Date(iso).getTime();
@@ -711,11 +730,80 @@ function buildHash(path, params = {}) {
   return qs ? `${path}?${qs}` : path;
 }
 
-function navigate(path, params = {}) {
-  location.hash = buildHash(path, params);
+function currentHash() {
+  return location.hash || "#/";
 }
 
-function route() {
+function hashFromUrl(url) {
+  if (!url) return currentHash();
+  try {
+    return new URL(url, location.href).hash || "#/";
+  } catch {
+    const value = String(url);
+    const hashIndex = value.indexOf("#");
+    return hashIndex >= 0 ? value.slice(hashIndex) || "#/" : "#/";
+  }
+}
+
+function currentScrollTop() {
+  if (document.scrollingElement) return document.scrollingElement.scrollTop;
+  if (Number.isFinite(window.scrollY)) return window.scrollY;
+  return document.documentElement.scrollTop || document.body.scrollTop || 0;
+}
+
+function saveScrollPosition(hash = currentHash()) {
+  state.scrollPositions.set(hash || "#/", currentScrollTop());
+}
+
+function scrollPageTo(top = 0) {
+  const y = Math.max(0, Number(top) || 0);
+  if (typeof window.scrollTo === "function") {
+    window.scrollTo({ top: y, left: 0, behavior: "auto" });
+  }
+  if (document.scrollingElement) document.scrollingElement.scrollTop = y;
+  document.documentElement.scrollTop = y;
+  document.body.scrollTop = y;
+}
+
+function scrollPageToTop() {
+  scrollPageTo(0);
+}
+
+function restoreScrollPosition(hash = currentHash()) {
+  scrollPageTo(state.scrollPositions.get(hash || "#/") || 0);
+}
+
+function applyRouteScroll(scrollMode = "none", hash = currentHash()) {
+  if (scrollMode === "none") return;
+  const run = () => {
+    if (scrollMode === "restore") restoreScrollPosition(hash);
+    else scrollPageToTop();
+  };
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(run);
+  } else {
+    run();
+  }
+}
+
+function navigateHash(targetHash, { resetScroll = true } = {}) {
+  const [path, queryString = ""] = String(targetHash || "#/").split("?");
+  navigate(path || "#/", Object.fromEntries(new URLSearchParams(queryString)), { resetScroll });
+}
+
+function navigate(path, params = {}, { resetScroll = true } = {}) {
+  const nextHash = buildHash(path, params);
+  const prevHash = currentHash();
+  if (nextHash === prevHash) {
+    if (resetScroll) route({ scrollMode: "top" });
+    return;
+  }
+  saveScrollPosition(prevHash);
+  state.pendingNavigationScrollMode = resetScroll ? "top" : "restore";
+  location.hash = nextHash;
+}
+
+function route({ scrollMode = "none" } = {}) {
   if (!state.db) return;
   closeGalleryLightbox({ restoreFocus: false });
   if (typeof state.closeTopbarMenu === "function") state.closeTopbarMenu();
@@ -747,6 +835,7 @@ function route() {
     view.appendChild(el("div", { class: "error" }, `Błąd: ${error.message}`));
     console.error(error);
   }
+  applyRouteScroll(scrollMode, currentHash());
 }
 
 function highlightNav(path) {
@@ -759,7 +848,23 @@ function highlightNav(path) {
   }
 }
 
-window.addEventListener("hashchange", route);
+document.addEventListener("click", (event) => {
+  if (event.defaultPrevented || event.button !== 0) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const link = event.target.closest("a");
+  if (!link) return;
+  const href = link.getAttribute("href") || "";
+  if (!(href === "#" || href.startsWith("#/"))) return;
+  event.preventDefault();
+  navigateHash(href, { resetScroll: true });
+});
+
+window.addEventListener("hashchange", (event) => {
+  saveScrollPosition(hashFromUrl(event.oldURL));
+  const scrollMode = state.pendingNavigationScrollMode || "restore";
+  state.pendingNavigationScrollMode = null;
+  route({ scrollMode });
+});
 window.addEventListener("storage", (event) => {
   if (event.key != null && event.key !== WATCHLIST_STORAGE_KEY) return;
   syncWatchlistStateFromStorage();
@@ -1785,7 +1890,7 @@ function viewListings(view, params) {
   const tbody = el("tbody");
   for (const r of rows) {
     const tr = el("tr", { onclick: (e) => {
-      if (e.target.closest("a, button")) return;
+      if (clickStartedInInteractiveElement(e)) return;
       navigate(`#/listing/${r.id}`);
     }},
       el("td", {}, activeBadge(r.is_active)),
@@ -2192,7 +2297,10 @@ function viewListingDetail(view, id) {
     for (const rr of relistingRows) {
       const dirLabel = rr.direction === "relisted_as" ? "wznowione jako ->" : "<- wznowienie z";
       relistBody.appendChild(el("tr", {
-        onclick: () => { window.location.hash = `#/listing/${rr.related_id}`; },
+        onclick: (event) => {
+          if (clickStartedInInteractiveElement(event)) return;
+          navigate(`#/listing/${rr.related_id}`);
+        },
       },
         el("td", { class: "muted" }, dirLabel),
         el("td", {}, matchTypeBadge(rr.match_type)),
@@ -2835,7 +2943,7 @@ function panelTable(title, headers, rows, rowClickHandlers, emptyMsg) {
   const tbody = el("tbody");
   rows.forEach((cells, i) => {
     const handler = rowClickHandlers && rowClickHandlers[i];
-    const tr = el("tr", handler ? { onclick: (e) => { if (e.target.tagName !== "A") handler(); } } : { class: "no-click" },
+    const tr = el("tr", handler ? { onclick: (event) => { if (!clickStartedInInteractiveElement(event)) handler(); } } : { class: "no-click" },
       ...cells.map((c) => el("td", {}, c instanceof Node ? c : String(c ?? "-"))),
     );
     tbody.appendChild(tr);
@@ -3273,7 +3381,28 @@ function renderSparkline(series, width, height, { color = "#2563eb", formatLabel
   const sy = (v) => height - padY - ((v - yMin) / yRange) * (height - padY * 2);
 
   const path = series.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.t).toFixed(1)},${sy(p.v).toFixed(1)}`).join(" ");
-  const dots = series.map((p) => `<circle cx="${sx(p.t).toFixed(1)}" cy="${sy(p.v).toFixed(1)}" r="3" fill="${color}" />`).join("");
+  const dots = series.map((p) => {
+    const x = sx(p.t);
+    const y = sy(p.v);
+    const valueLabel = formatLabel(p.v);
+    const dateLabel = formatDate(new Date(p.t).toISOString());
+    const tooltipLabel = escapeHtml(valueLabel);
+    const titleLabel = escapeHtml(`${valueLabel} · ${dateLabel}`);
+    const tooltipWidth = Math.min(width - 16, Math.max(56, valueLabel.length * 7 + 18));
+    const tooltipLeft = Math.max(8, Math.min(width - tooltipWidth - 8, x - tooltipWidth / 2));
+    const tooltipTop = y > padY + 32 ? y - 34 : y + 12;
+    return `
+      <g class="sparkline-point" tabindex="0">
+        <title>${titleLabel}</title>
+        <circle class="sparkline-point-hit" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="10" />
+        <circle class="sparkline-point-dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${color}" />
+        <g class="sparkline-tooltip" transform="translate(${tooltipLeft.toFixed(1)} ${tooltipTop.toFixed(1)})">
+          <rect class="sparkline-tooltip-box" width="${tooltipWidth.toFixed(1)}" height="24" rx="12" ry="12" />
+          <text class="sparkline-tooltip-text" x="${(tooltipWidth / 2).toFixed(1)}" y="12" text-anchor="middle" dominant-baseline="middle">${tooltipLabel}</text>
+        </g>
+      </g>
+    `;
+  }).join("");
 
   const svg = `
     <svg class="sparkline" viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet">

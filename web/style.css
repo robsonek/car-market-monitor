@@ -636,6 +636,51 @@ button.secondary {
 
 .sparkline {
   display: block;
+  overflow: visible;
+}
+
+.sparkline-point {
+  cursor: help;
+  outline: none;
+}
+
+.sparkline-point-hit {
+  fill: transparent;
+}
+
+.sparkline-point-dot {
+  stroke: var(--panel);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkline-tooltip {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.sparkline-point:hover .sparkline-tooltip,
+.sparkline-point:focus .sparkline-tooltip {
+  opacity: 1;
+}
+
+.sparkline-point:hover .sparkline-point-dot,
+.sparkline-point:focus .sparkline-point-dot {
+  stroke: var(--accent);
+}
+
+.sparkline-tooltip-box {
+  fill: var(--panel);
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkline-tooltip-text {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .timeline {
