@@ -29,6 +29,8 @@ const state = {
   closeTopbarMenu: null,
   scrollPositions: new Map(),
   pendingNavigationScrollMode: null,
+  pendingNavigationScrollTop: null,
+  pendingNavigationScrollTarget: null,
 };
 
 // ---------- bootstrap ----------
@@ -769,14 +771,31 @@ function scrollPageToTop() {
   scrollPageTo(0);
 }
 
+function scrollPageToSelector(selector) {
+  if (!selector) {
+    scrollPageToTop();
+    return;
+  }
+  const target = document.querySelector(selector);
+  if (!target) {
+    scrollPageToTop();
+    return;
+  }
+  const topbarHeight = document.querySelector(".topbar")?.getBoundingClientRect().height || 0;
+  const targetTop = currentScrollTop() + target.getBoundingClientRect().top - topbarHeight - 12;
+  scrollPageTo(targetTop);
+}
+
 function restoreScrollPosition(hash = currentHash()) {
   scrollPageTo(state.scrollPositions.get(hash || "#/") || 0);
 }
 
-function applyRouteScroll(scrollMode = "none", hash = currentHash()) {
+function applyRouteScroll(scrollMode = "none", hash = currentHash(), preservedScrollTop = null, scrollTarget = null) {
   if (scrollMode === "none") return;
   const run = () => {
     if (scrollMode === "restore") restoreScrollPosition(hash);
+    else if (scrollMode === "preserve") scrollPageTo(preservedScrollTop);
+    else if (scrollMode === "target") scrollPageToSelector(scrollTarget);
     else scrollPageToTop();
   };
   if (typeof window.requestAnimationFrame === "function") {
@@ -786,24 +805,33 @@ function applyRouteScroll(scrollMode = "none", hash = currentHash()) {
   }
 }
 
-function navigateHash(targetHash, { resetScroll = true } = {}) {
+function navigateHash(targetHash, { resetScroll = true, scrollMode = null, scrollTarget = null } = {}) {
   const [path, queryString = ""] = String(targetHash || "#/").split("?");
-  navigate(path || "#/", Object.fromEntries(new URLSearchParams(queryString)), { resetScroll });
+  navigate(path || "#/", Object.fromEntries(new URLSearchParams(queryString)), { resetScroll, scrollMode, scrollTarget });
 }
 
-function navigate(path, params = {}, { resetScroll = true } = {}) {
+function navigate(path, params = {}, { resetScroll = true, scrollMode = null, scrollTarget = null } = {}) {
   const nextHash = buildHash(path, params);
   const prevHash = currentHash();
+  const resolvedScrollMode = scrollMode || (resetScroll ? "top" : "restore");
   if (nextHash === prevHash) {
-    if (resetScroll) route({ scrollMode: "top" });
+    if (resolvedScrollMode !== "none") {
+      route({
+        scrollMode: resolvedScrollMode,
+        preservedScrollTop: resolvedScrollMode === "preserve" ? currentScrollTop() : null,
+        scrollTarget,
+      });
+    }
     return;
   }
   saveScrollPosition(prevHash);
-  state.pendingNavigationScrollMode = resetScroll ? "top" : "restore";
+  state.pendingNavigationScrollMode = resolvedScrollMode;
+  state.pendingNavigationScrollTop = resolvedScrollMode === "preserve" ? currentScrollTop() : null;
+  state.pendingNavigationScrollTarget = resolvedScrollMode === "target" ? scrollTarget : null;
   location.hash = nextHash;
 }
 
-function route({ scrollMode = "none" } = {}) {
+function route({ scrollMode = "none", preservedScrollTop = null, scrollTarget = null } = {}) {
   if (!state.db) return;
   closeGalleryLightbox({ restoreFocus: false });
   if (typeof state.closeTopbarMenu === "function") state.closeTopbarMenu();
@@ -835,7 +863,7 @@ function route({ scrollMode = "none" } = {}) {
     view.appendChild(el("div", { class: "error" }, `Błąd: ${error.message}`));
     console.error(error);
   }
-  applyRouteScroll(scrollMode, currentHash());
+  applyRouteScroll(scrollMode, currentHash(), preservedScrollTop, scrollTarget);
 }
 
 function highlightNav(path) {
@@ -862,8 +890,12 @@ document.addEventListener("click", (event) => {
 window.addEventListener("hashchange", (event) => {
   saveScrollPosition(hashFromUrl(event.oldURL));
   const scrollMode = state.pendingNavigationScrollMode || "restore";
+  const preservedScrollTop = state.pendingNavigationScrollTop;
+  const scrollTarget = state.pendingNavigationScrollTarget;
   state.pendingNavigationScrollMode = null;
-  route({ scrollMode });
+  state.pendingNavigationScrollTop = null;
+  state.pendingNavigationScrollTarget = null;
+  route({ scrollMode, preservedScrollTop, scrollTarget });
 });
 window.addEventListener("storage", (event) => {
   if (event.key != null && event.key !== WATCHLIST_STORAGE_KEY) return;
@@ -1115,18 +1147,22 @@ function viewHome(view, params = {}) {
 function viewActivity(view, params = {}) {
   view.appendChild(el("h1", {}, "Activity"));
 
-  const PAGE_SIZE = 100;
+  const PAGE_SIZE = 50;
   const activityPath = "#/activity";
+  const ACTIVITY_WINDOW_DAYS = 7;
+  const activityWindowExpr = `-${ACTIVITY_WINDOW_DAYS} days`;
+  const activityWindowLabel = `ostatnie ${ACTIVITY_WINDOW_DAYS} dni`;
 
   function readPageParam(name) {
     const page = Number.parseInt(params[name] || "", 10);
     return Number.isInteger(page) && page > 0 ? page : 1;
   }
 
-  function buildActivitySort(sortParam, dirParam, pageParam, columns, defaultKey = "when") {
+  function buildActivitySort(sortParam, dirParam, pageParam, sectionKey, columns, defaultKey = "when") {
     const sortKey = columns[params[sortParam]] ? params[sortParam] : defaultKey;
     const sortDir = params[dirParam] === "asc" ? "ASC" : "DESC";
     const sortExpr = columns[sortKey];
+    const scrollTarget = `[data-activity-section="${sectionKey}"]`;
 
     function sortableTh(label, key, opts = {}) {
       const numeric = opts.numeric || false;
@@ -1140,7 +1176,7 @@ function viewActivity(view, params = {}) {
           else nextDir = numeric ? "desc" : "asc";
           const next = { ...params, [sortParam]: key, [dirParam]: nextDir };
           delete next[pageParam];
-          navigate(activityPath, next);
+          navigate(activityPath, next, { scrollMode: "target", scrollTarget });
         },
       }, label);
     }
@@ -1166,10 +1202,15 @@ function viewActivity(view, params = {}) {
     return { rows, total, page: safePage, totalPages };
   }
 
-  function appendPager(pageParam, page, totalPages) {
+  function appendPager(panel, pageParam, page, totalPages, sectionKey) {
     if (totalPages <= 1) return;
-    const goTo = (targetPage) => navigate(activityPath, { ...params, [pageParam]: String(targetPage) });
-    view.appendChild(el("div", { class: "pager" },
+    const scrollTarget = `[data-activity-section="${sectionKey}"]`;
+    const goTo = (targetPage) => navigate(
+      activityPath,
+      { ...params, [pageParam]: String(targetPage) },
+      { scrollMode: "target", scrollTarget },
+    );
+    panel.appendChild(el("div", { class: "pager panel-pager" },
       el("button", {
         type: "button",
         class: "secondary",
@@ -1186,6 +1227,69 @@ function viewActivity(view, params = {}) {
     ));
   }
 
+  const recentlyChangedSortColumns = {
+    when: "created_at",
+    title: "lower(title)",
+    year: "year",
+    price: "CAST(last_price_amount AS REAL)",
+    changes: "CAST(field_count AS INTEGER)",
+  };
+  const recentlyChangedSort = buildActivitySort(
+    "changedSort",
+    "changedDir",
+    "changedPage",
+    "changed",
+    recentlyChangedSortColumns,
+  );
+  const recentlyChangedPage = readPageParam("changedPage");
+  const recentlyChangedBaseSql = `WITH latest_listing_changes AS (
+                                    SELECT lc.listing_id, MAX(lc.created_at) AS created_at
+                                    FROM listing_changes lc
+                                    WHERE lc.field_name NOT IN ('__listing_created', '__listing_status')
+                                      AND lc.created_at >= datetime('now', '${activityWindowExpr}')
+                                    GROUP BY lc.listing_id
+                                  )
+                                  SELECT lc.created_at, l.id, l.title, l.last_price_amount, l.year,
+                                         COUNT(*) AS change_count,
+                                         COUNT(DISTINCT lc.field_name) AS field_count,
+                                         GROUP_CONCAT(DISTINCT lc.field_name) AS changed_fields
+                                  FROM latest_listing_changes latest
+                                  JOIN listing_changes lc
+                                    ON lc.listing_id = latest.listing_id
+                                   AND lc.created_at = latest.created_at
+                                  JOIN listings l ON l.id = lc.listing_id
+                                  WHERE lc.field_name NOT IN ('__listing_created', '__listing_status')
+                                  GROUP BY lc.created_at, l.id, l.title, l.last_price_amount, l.year`;
+  const recentlyChanged = queryPagedSection(
+    recentlyChangedBaseSql,
+    recentlyChangedSort.sortExpr,
+    recentlyChangedSort.sortDir,
+    recentlyChangedPage,
+    "created_at DESC, title ASC",
+  );
+  const recentlyChangedPanel = panelTable(
+    `Ostatnio zmienione (${activityWindowLabel}) · ${recentlyChanged.total.toLocaleString("pl-PL")}`,
+    [
+      recentlyChangedSort.sortableTh("Kiedy", "when", { numeric: true }),
+      recentlyChangedSort.sortableTh("Oferta", "title"),
+      recentlyChangedSort.sortableTh("Rok", "year", { numeric: true }),
+      recentlyChangedSort.sortableTh("Cena", "price", { numeric: true }),
+      recentlyChangedSort.sortableTh("Zmiany", "changes", { numeric: true }),
+    ],
+    recentlyChanged.rows.map((r) => [
+      formatRelative(r.created_at),
+      listingLink(r.id, r.title || r.id),
+      el("span", { class: "tabular" }, r.year ?? "-"),
+      el("span", { class: "tabular" }, formatPrice(r.last_price_amount)),
+      summarizeChangedFields(r.changed_fields, r.field_count, r.change_count),
+    ]),
+    recentlyChanged.rows.map((r) => () => navigate(`#/listing/${r.id}`)),
+    `Brak ofert z ostatnimi zmianami w oknie: ${activityWindowLabel}.`,
+  );
+  recentlyChangedPanel.setAttribute("data-activity-section", "changed");
+  appendPager(recentlyChangedPanel, "changedPage", recentlyChanged.page, recentlyChanged.totalPages, "changed");
+  view.appendChild(recentlyChangedPanel);
+
   const priceChangeSortColumns = {
     when: "created_at",
     title: "lower(title)",
@@ -1194,7 +1298,7 @@ function viewActivity(view, params = {}) {
     new_price: "CAST(new_value AS REAL)",
     change: "price_change_amount",
   };
-  const priceChangeSort = buildActivitySort("dropsSort", "dropsDir", "dropsPage", priceChangeSortColumns);
+  const priceChangeSort = buildActivitySort("dropsSort", "dropsDir", "dropsPage", "drops", priceChangeSortColumns);
   const priceChangePage = readPageParam("dropsPage");
   const priceChangeBaseSql = `SELECT lc.created_at, lc.old_value, lc.new_value, l.id, l.title, l.listing_url, l.year,
                                      (CAST(lc.new_value AS REAL) - CAST(lc.old_value AS REAL)) AS price_change_amount
@@ -1205,7 +1309,7 @@ function viewActivity(view, params = {}) {
                                 AND CAST(lc.old_value AS REAL) > 0
                                 AND CAST(lc.new_value AS REAL) > 0
                                 AND CAST(lc.new_value AS REAL) <> CAST(lc.old_value AS REAL)
-                                AND lc.created_at >= datetime('now', '-30 days')`;
+                                AND lc.created_at >= datetime('now', '${activityWindowExpr}')`;
   const priceChanges = queryPagedSection(
     priceChangeBaseSql,
     priceChangeSort.sortExpr,
@@ -1213,8 +1317,8 @@ function viewActivity(view, params = {}) {
     priceChangePage,
     "created_at DESC, title ASC",
   );
-  view.appendChild(panelTable(
-    `Zmiany cen (ostatnie 30 dni) · ${priceChanges.total.toLocaleString("pl-PL")}`,
+  const priceChangesPanel = panelTable(
+    `Zmiany cen (${activityWindowLabel}) · ${priceChanges.total.toLocaleString("pl-PL")}`,
     [
       priceChangeSort.sortableTh("Kiedy", "when", { numeric: true }),
       priceChangeSort.sortableTh("Oferta", "title"),
@@ -1236,9 +1340,11 @@ function viewActivity(view, params = {}) {
       ];
     }),
     priceChanges.rows.map((r) => () => navigate(`#/listing/${r.id}`)),
-    "Brak zmian cen w ostatnich 30 dniach.",
-  ));
-  appendPager("dropsPage", priceChanges.page, priceChanges.totalPages);
+    `Brak zmian cen w oknie: ${activityWindowLabel}.`,
+  );
+  priceChangesPanel.setAttribute("data-activity-section", "drops");
+  appendPager(priceChangesPanel, "dropsPage", priceChanges.page, priceChanges.totalPages, "drops");
+  view.appendChild(priceChangesPanel);
 
   const statusSortColumns = {
     when: "created_at",
@@ -1246,12 +1352,19 @@ function viewActivity(view, params = {}) {
     year: "year",
     price: "CAST(last_price_amount AS REAL)",
   };
-  const disappearedSort = buildActivitySort("disappearedSort", "disappearedDir", "disappearedPage", statusSortColumns);
+  const disappearedSort = buildActivitySort(
+    "disappearedSort",
+    "disappearedDir",
+    "disappearedPage",
+    "disappeared",
+    statusSortColumns,
+  );
   const disappearedPage = readPageParam("disappearedPage");
   const disappearedBaseSql = `SELECT lc.created_at, l.id, l.title, l.last_price_amount, l.year
                               FROM listing_changes lc
                               JOIN listings l ON l.id = lc.listing_id
                               WHERE lc.field_name = '__listing_status' AND lc.new_value = 'MISSING'
+                                AND lc.created_at >= datetime('now', '${activityWindowExpr}')
                                 AND l.is_active = 0
                                 AND NOT EXISTS (
                                   SELECT 1 FROM listing_changes lc2
@@ -1266,8 +1379,8 @@ function viewActivity(view, params = {}) {
     disappearedPage,
     "created_at DESC, title ASC",
   );
-  view.appendChild(panelTable(
-    `Świeżo zniknięte · ${disappeared.total.toLocaleString("pl-PL")}`,
+  const disappearedPanel = panelTable(
+    `Świeżo zniknięte (${activityWindowLabel}) · ${disappeared.total.toLocaleString("pl-PL")}`,
     [
       disappearedSort.sortableTh("Kiedy", "when", { numeric: true }),
       disappearedSort.sortableTh("Oferta", "title"),
@@ -1281,16 +1394,19 @@ function viewActivity(view, params = {}) {
       el("span", { class: "tabular" }, formatPrice(r.last_price_amount)),
     ]),
     disappeared.rows.map((r) => () => navigate(`#/listing/${r.id}`)),
-    "Nic ostatnio nie zniknęło.",
-  ));
-  appendPager("disappearedPage", disappeared.page, disappeared.totalPages);
+    `Nic nie zniknęło w oknie: ${activityWindowLabel}.`,
+  );
+  disappearedPanel.setAttribute("data-activity-section", "disappeared");
+  appendPager(disappearedPanel, "disappearedPage", disappeared.page, disappeared.totalPages, "disappeared");
+  view.appendChild(disappearedPanel);
 
-  const appearedSort = buildActivitySort("appearedSort", "appearedDir", "appearedPage", statusSortColumns);
+  const appearedSort = buildActivitySort("appearedSort", "appearedDir", "appearedPage", "appeared", statusSortColumns);
   const appearedPage = readPageParam("appearedPage");
   const appearedBaseSql = `SELECT lc.created_at, l.id, l.title, l.last_price_amount, l.year
                            FROM listing_changes lc
                            JOIN listings l ON l.id = lc.listing_id
-                           WHERE lc.field_name = '__listing_created'`;
+                           WHERE lc.field_name = '__listing_created'
+                             AND lc.created_at >= datetime('now', '${activityWindowExpr}')`;
   const appeared = queryPagedSection(
     appearedBaseSql,
     appearedSort.sortExpr,
@@ -1298,8 +1414,8 @@ function viewActivity(view, params = {}) {
     appearedPage,
     "created_at DESC, title ASC",
   );
-  view.appendChild(panelTable(
-    `Świeżo dodane · ${appeared.total.toLocaleString("pl-PL")}`,
+  const appearedPanel = panelTable(
+    `Świeżo dodane (${activityWindowLabel}) · ${appeared.total.toLocaleString("pl-PL")}`,
     [
       appearedSort.sortableTh("Kiedy", "when", { numeric: true }),
       appearedSort.sortableTh("Oferta", "title"),
@@ -1313,9 +1429,11 @@ function viewActivity(view, params = {}) {
       el("span", { class: "tabular" }, formatPrice(r.last_price_amount)),
     ]),
     appeared.rows.map((r) => () => navigate(`#/listing/${r.id}`)),
-    "Brak nowych ofert.",
-  ));
-  appendPager("appearedPage", appeared.page, appeared.totalPages);
+    `Brak nowych ofert w oknie: ${activityWindowLabel}.`,
+  );
+  appearedPanel.setAttribute("data-activity-section", "appeared");
+  appendPager(appearedPanel, "appearedPage", appeared.page, appeared.totalPages, "appeared");
+  view.appendChild(appearedPanel);
 }
 
 function viewListings(view, params) {
@@ -2957,6 +3075,126 @@ function truncate(text, n) {
   if (text == null) return "—";
   const s = String(text);
   return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+function humanizeFieldSegment(segment) {
+  return String(segment || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeChangedFieldKey(fieldName) {
+  return String(fieldName || "")
+    .replace(/^details\./, "")
+    .replace(/^parameters\./, "")
+    .replace(/^decrypted\./, "")
+    .replace(/^seller\.location\.canonicals\./, "")
+    .replace(/^seller\.location\.map\./, "")
+    .replace(/^seller\.location\./, "")
+    .replace(/^seller\./, "")
+    .replace(/^price\./, "")
+    .replace(/^images\./, "")
+    .replace(/\.(label|value|values|group|href|description)$/, "");
+}
+
+function formatChangedFieldLabel(fieldName) {
+  const directLabels = {
+    created_at: "data publikacji",
+    original_created_at: "pierwotna data publikacji",
+    updated_at: "data aktualizacji",
+    "price.value": "cena",
+    "price.labels": "etykiety ceny",
+    "images.urls": "zdjęcia",
+    "images.count": "liczba zdjęć",
+    value_added_services: "promowanie",
+    main_features: "główne cechy",
+    ad_features: "wyróżniki",
+    description_text: "opis",
+    description: "opis",
+    description_html: "opis",
+    title: "tytuł",
+    packages: "pakiety",
+    verified_car: "verified car",
+    verified_car_fields: "pola verified car",
+    "decrypted.phones_main": "telefony główne",
+    "decrypted.phones_description": "telefony w opisie",
+    "seller.features_badges": "wyróżnienia sprzedawcy",
+    "seller.name": "sprzedawca",
+    "seller.type": "typ sprzedawcy",
+    "seller.uuid": "UUID sprzedawcy",
+    "seller.id": "ID sprzedawcy",
+    "seller.location.address": "adres sprzedawcy",
+    "seller.location.shortAddress": "krótki adres sprzedawcy",
+    "seller.location.city": "miasto sprzedawcy",
+    "seller.location.cityId": "ID miasta sprzedawcy",
+    "seller.location.region": "region sprzedawcy",
+    "seller.location.regionId": "ID regionu sprzedawcy",
+    "seller.location.country": "kraj sprzedawcy",
+    "seller.location.postalCode": "kod pocztowy sprzedawcy",
+    "seller.location.map.latitude": "szerokość geogr. sprzedawcy",
+    "seller.location.map.longitude": "długość geogr. sprzedawcy",
+    "seller.location.map.radius": "promień mapy sprzedawcy",
+    "seller.location.map.zoom": "zoom mapy sprzedawcy",
+    "seller.location.canonicals.city": "miasto sprzedawcy",
+    "seller.location.canonicals.region": "region sprzedawcy",
+    "seller.location.canonicals.subregion": "subregion sprzedawcy",
+  };
+  if (directLabels[fieldName]) return directLabels[fieldName];
+
+  const normalized = normalizeChangedFieldKey(fieldName);
+
+  const normalizedLabels = {
+    mileage: "przebieg",
+    year: "rok",
+    make: "marka",
+    model: "model",
+    fuel_type: "paliwo",
+    gearbox: "skrzynia",
+    body_type: "nadwozie",
+    engine_power: "moc",
+    engine_capacity: "pojemność",
+    seller_name: "sprzedawca",
+    country_origin: "kraj pochodzenia",
+    no_accident: "bezwypadkowy",
+    registered: "zarejestrowany",
+    original_owner: "pierwszy właściciel",
+    approval_for_goods: "homologacja ciężarowa",
+    historical_vehicle: "pojazd zabytkowy",
+    tuning: "tuning",
+    autorenew: "autoodnawianie",
+    transmission: "napęd",
+    color: "kolor",
+    door_count: "liczba drzwi",
+    has_registration: "rejestracja",
+    catalog_urn: "katalog",
+    version: "wersja",
+    version_label: "etykieta wersji",
+    deactivation_reason_id: "powód dezaktywacji",
+  };
+  if (normalizedLabels[normalized]) return normalizedLabels[normalized];
+
+  const parts = normalized.split(".").map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) return "zmiana";
+  return parts.slice(-2).map(humanizeFieldSegment).join(" / ");
+}
+
+function summarizeChangedFields(changedFields, fieldCount, changeCount) {
+  const fields = String(changedFields || "")
+    .split(",")
+    .map((field) => field.trim())
+    .filter(Boolean);
+  const uniqueFields = Array.from(new Set(fields));
+  const safeFieldCount = Number(fieldCount) || uniqueFields.length;
+  const safeChangeCount = Number(changeCount) || safeFieldCount;
+  if (uniqueFields.length === 0) {
+    return `${safeChangeCount} ${formatCountPl(safeChangeCount, "zmiana", "zmiany", "zmian")}`;
+  }
+  const preview = uniqueFields.slice(0, 3).map(formatChangedFieldLabel).join(", ");
+  const extra = uniqueFields.length - Math.min(uniqueFields.length, 3);
+  const extraLabel = extra > 0 ? ` +${extra}` : "";
+  return `${safeFieldCount} ${formatCountPl(safeFieldCount, "pole", "pola", "pól")}: ${preview}${extraLabel}`;
 }
 
 function formatSellerLocation(listing) {
