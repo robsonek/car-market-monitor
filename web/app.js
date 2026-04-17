@@ -391,6 +391,7 @@ function renderGalleryLightbox() {
 
   const activeThumb = lightbox.strip.querySelector(".gallery-lightbox-thumb.is-active");
   if (activeThumb) activeThumb.scrollIntoView({ block: "nearest", inline: "center" });
+  lightbox.updateStripScrollButtons();
 }
 
 function showGalleryLightboxImage(index) {
@@ -501,6 +502,42 @@ function initGalleryLightbox() {
       strip.scrollLeft += delta;
     },
   });
+  const stripScrollPrev = el(
+    "button",
+    {
+      type: "button",
+      class: "gallery-lightbox-strip-scroll gallery-lightbox-strip-scroll-prev",
+      "aria-label": "Przewiń miniatury w lewo",
+      onclick: () => strip.scrollBy({ left: -Math.max(strip.clientWidth * 0.8, 160), behavior: "smooth" }),
+    },
+    "‹",
+  );
+  const stripScrollNext = el(
+    "button",
+    {
+      type: "button",
+      class: "gallery-lightbox-strip-scroll gallery-lightbox-strip-scroll-next",
+      "aria-label": "Przewiń miniatury w prawo",
+      onclick: () => strip.scrollBy({ left: Math.max(strip.clientWidth * 0.8, 160), behavior: "smooth" }),
+    },
+    "›",
+  );
+  const stripWrap = el(
+    "div",
+    { class: "gallery-lightbox-strip-wrap" },
+    stripScrollPrev,
+    strip,
+    stripScrollNext,
+  );
+  const updateStripScrollButtons = () => {
+    const maxScroll = strip.scrollWidth - strip.clientWidth;
+    const canPrev = strip.scrollLeft > 4;
+    const canNext = strip.scrollLeft < maxScroll - 4;
+    stripScrollPrev.classList.toggle("is-visible", canPrev);
+    stripScrollNext.classList.toggle("is-visible", canNext);
+  };
+  strip.addEventListener("scroll", updateStripScrollButtons, { passive: true });
+  window.addEventListener("resize", updateStripScrollButtons);
   const dialog = el(
     "div",
     {
@@ -523,7 +560,7 @@ function initGalleryLightbox() {
       el("div", { class: "gallery-lightbox-frame" }, image),
       nextButton,
     ),
-    strip,
+    stripWrap,
   );
   const overlay = el("div", {
     class: "gallery-lightbox",
@@ -545,6 +582,7 @@ function initGalleryLightbox() {
     prevButton,
     nextButton,
     strip,
+    updateStripScrollButtons,
     urls: [],
     index: 0,
     lastFocused: null,

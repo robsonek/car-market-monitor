@@ -1176,6 +1176,57 @@ body.gallery-lightbox-open {
   cursor: default;
 }
 
+.gallery-lightbox-strip-wrap {
+  position: relative;
+}
+
+.gallery-lightbox-strip-scroll {
+  position: absolute;
+  top: 0;
+  bottom: 8px;
+  width: 56px;
+  padding: 0 10px;
+  border: 0;
+  color: #fff;
+  font-size: 32px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 3;
+  font-family: inherit;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.gallery-lightbox-strip-scroll.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.gallery-lightbox-strip-scroll-prev {
+  left: 0;
+  justify-content: flex-start;
+  background: linear-gradient(to right, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0));
+}
+
+.gallery-lightbox-strip-scroll-next {
+  right: 0;
+  justify-content: flex-end;
+  background: linear-gradient(to left, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0));
+}
+
+.gallery-lightbox-strip-scroll:hover {
+  color: var(--accent);
+}
+
+.gallery-lightbox-strip-scroll:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent-bg);
+}
+
 .gallery-lightbox-strip {
   display: grid;
   grid-auto-flow: column;
