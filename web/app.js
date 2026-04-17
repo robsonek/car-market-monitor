@@ -1910,6 +1910,7 @@ function viewListings(view, params) {
     price: "CAST(l.last_price_amount AS REAL)",
     power: "l.engine_power",
     fuel_type: "l.fuel_type",
+    ad_date: "l.advert_original_created_at",
     last_seen: "l.last_seen_at",
   };
   const sortKey = SORT_COLUMNS[params.sort] ? params.sort : "last_seen";
@@ -1944,7 +1945,7 @@ function viewListings(view, params) {
     state.db,
     `SELECT l.id, l.external_id, l.title, l.listing_url, l.is_active,
             l.last_price_amount, l.last_mileage, l.last_year, l.last_seen_at,
-            l.fuel_type, l.engine_power
+            l.advert_original_created_at, l.fuel_type, l.engine_power
      ${fromClause}
      ORDER BY ${sortExpr} ${sortDir} NULLS LAST, l.title ASC
      LIMIT ? OFFSET ?`,
@@ -2001,6 +2002,7 @@ function viewListings(view, params) {
       sortableTh("Paliwo", "fuel_type"),
       sortableTh("KM", "power", { numeric: true }),
       sortableTh("Cena", "price", { numeric: true }),
+      sortableTh("Data dodania", "ad_date", { numeric: true }),
       sortableTh("Last seen", "last_seen", { numeric: true }),
       el("th", {}, ""),
     ),
@@ -2018,6 +2020,7 @@ function viewListings(view, params) {
       el("td", { class: "muted" }, formatEnum(r.fuel_type)),
       el("td", { class: "num" }, r.engine_power != null ? `${r.engine_power}` : "—"),
       el("td", { class: "num" }, formatPrice(r.last_price_amount)),
+      el("td", { class: "muted tabular" }, formatDate(r.advert_original_created_at)),
       el("td", { class: "muted tabular" }, formatRelative(r.last_seen_at)),
       el("td", {}, el("a", { href: r.listing_url, target: "_blank", rel: "noopener" }, "link ↗")),
     );
@@ -2200,6 +2203,9 @@ function viewListingDetail(view, id) {
     statCard("Cena", formatPrice(listing.last_price_amount)),
     statCard("Rok", listing.year || listing.last_year || "—"),
     statCard("Przebieg", formatMileage(listing.mileage || listing.last_mileage)),
+    statCard("Dodano na otomoto", formatDate(listing.advert_original_created_at)),
+    statCard("Ostatni republish", formatDate(listing.advert_created_at)),
+    statCard("Ostatnia edycja", formatDate(listing.advert_updated_at)),
     statCard("Pierwszy raz", formatDate(listing.first_seen_at)),
     statCard("Ostatni raz", formatDate(listing.last_seen_at)),
   );
