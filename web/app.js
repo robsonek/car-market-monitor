@@ -421,6 +421,9 @@ function openGalleryLightbox(urls, index = 0, trigger = null) {
   lightbox.overlay.hidden = false;
   lightbox.overlay.setAttribute("aria-hidden", "false");
   document.body.classList.add("gallery-lightbox-open");
+  const activeThumb = lightbox.strip.querySelector(".gallery-lightbox-thumb.is-active");
+  if (activeThumb) activeThumb.scrollIntoView({ block: "nearest", inline: "center" });
+  lightbox.updateStripScrollButtons();
   lightbox.closeButton.focus();
 }
 
