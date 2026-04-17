@@ -493,6 +493,13 @@ function initGalleryLightbox() {
   const strip = el("div", {
     class: "gallery-lightbox-strip",
     "aria-label": "Miniatury galerii",
+    onwheel: (event) => {
+      const { deltaX, deltaY } = event;
+      const delta = Math.abs(deltaY) > Math.abs(deltaX) ? deltaY : deltaX;
+      if (delta === 0) return;
+      event.preventDefault();
+      strip.scrollLeft += delta;
+    },
   });
   const dialog = el(
     "div",
