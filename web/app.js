@@ -1913,7 +1913,7 @@ function viewListings(view, params) {
     ad_date: "l.advert_original_created_at",
     last_seen: "l.last_seen_at",
   };
-  const sortKey = SORT_COLUMNS[params.sort] ? params.sort : "last_seen";
+  const sortKey = SORT_COLUMNS[params.sort] ? params.sort : "ad_date";
   const sortDir = params.dir === "asc" ? "ASC" : "DESC";
   const sortExpr = SORT_COLUMNS[sortKey];
 
@@ -2206,8 +2206,8 @@ function viewListingDetail(view, id) {
     statCard("Dodano na otomoto", formatDate(listing.advert_original_created_at)),
     statCard("Ostatni republish", formatDate(listing.advert_created_at)),
     statCard("Ostatnia edycja", formatDate(listing.advert_updated_at)),
-    statCard("Pierwszy raz", formatDate(listing.first_seen_at)),
-    statCard("Ostatni raz", formatDate(listing.last_seen_at)),
+    statCard("Monitorowane od", formatDate(listing.first_seen_at)),
+    statCard("Ostatnio widoczne", formatDate(listing.last_seen_at)),
   );
   view.appendChild(cards);
 
