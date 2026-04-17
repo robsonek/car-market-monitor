@@ -2198,8 +2198,14 @@ function viewListingDetail(view, id) {
   // Najważniejsze meta jako stat cards. Pierwszy rząd to standardowe price/year/mileage,
   // drugi rząd to specyfikacja techniczna z params columns (fuel_type, body_type, ...)
   // — pojawia się tylko jeśli te dane mamy (większość listingów ma).
-  const cards = el("div", { class: "cards" });
-  cards.append(
+  // Build the full list in one cards grid so specs fill the trailing gap
+  // after the date cards instead of starting a new sparse row. Filter
+  // falsy entries BEFORE Element.append — DOM append() coerces null/undefined
+  // into "null"/"undefined" text nodes (manifested as stray "nullnull" next
+  // to spec cards for non-EV listings where battery_capacity/autonomy are
+  // null). Our `el()` helper filters these out, but raw DOM append does not.
+  const hasSpecs = listing.fuel_type || listing.body_type || listing.gearbox || listing.engine_power;
+  const cardList = [
     statCard("Cena", formatPrice(listing.last_price_amount)),
     statCard("Rok", listing.year || listing.last_year || "—"),
     statCard("Przebieg", formatMileage(listing.mileage || listing.last_mileage)),
@@ -2208,33 +2214,18 @@ function viewListingDetail(view, id) {
     statCard("Ostatnia edycja", formatDate(listing.advert_updated_at)),
     statCard("Monitorowane od", formatDate(listing.first_seen_at)),
     statCard("Ostatnio widoczne", formatDate(listing.last_seen_at)),
-  );
+    hasSpecs ? statCard("Paliwo", formatEnum(listing.fuel_type)) : null,
+    hasSpecs ? statCard("Nadwozie", formatEnum(listing.body_type)) : null,
+    hasSpecs ? statCard("Skrzynia", formatEnum(listing.gearbox)) : null,
+    hasSpecs ? statCard("Moc", listing.engine_power ? `${listing.engine_power} KM` : "—") : null,
+    // EV-specific: pojemność baterii i zasięg pokazujemy tylko jeśli auto
+    // ma te pola. Dla benzyniaków by było mylące (a battery_capacity = null).
+    listing.battery_capacity ? statCard("Bateria", `${listing.battery_capacity} kWh`) : null,
+    listing.autonomy ? statCard("Zasięg", `${listing.autonomy} km`) : null,
+  ].filter(Boolean);
+  const cards = el("div", { class: "cards" });
+  cards.append(...cardList);
   view.appendChild(cards);
-
-  // Drugi rząd: technical spec. Tylko jeśli mamy choć jedno z pól, żeby
-  // pusty rząd "—" nie zaśmiecał ekranu dla listingów-szkieletów.
-  const hasSpecs = listing.fuel_type || listing.body_type || listing.gearbox || listing.engine_power;
-  if (hasSpecs) {
-    const specCards = el("div", { class: "cards" });
-    // Build the list and filter falsy entries BEFORE Element.append — DOM
-    // append() coerces null/undefined into the string "null"/"undefined" and
-    // shoves them into the document as text nodes (manifested as a stray
-    // "nullnull" floating next to the spec cards for non-EV listings where
-    // battery_capacity and autonomy are both null). Our `el()` helper filters
-    // these out automatically, but we're calling the raw DOM API here.
-    const specs = [
-      statCard("Paliwo", formatEnum(listing.fuel_type)),
-      statCard("Nadwozie", formatEnum(listing.body_type)),
-      statCard("Skrzynia", formatEnum(listing.gearbox)),
-      statCard("Moc", listing.engine_power ? `${listing.engine_power} KM` : "—"),
-      // EV-specific: pojemność baterii i zasięg pokazujemy tylko jeśli auto
-      // ma te pola. Dla benzyniaków by było mylące (a battery_capacity = null).
-      listing.battery_capacity ? statCard("Bateria", `${listing.battery_capacity} kWh`) : null,
-      listing.autonomy ? statCard("Zasięg", `${listing.autonomy} km`) : null,
-    ].filter(Boolean);
-    specCards.append(...specs);
-    view.appendChild(specCards);
-  }
 
   // ----- Panel: Gallery (zdjęcia z last snapshot payload_json) -----
   // Lazy parse — snapshot payload_json is ~26 KB and we want to skip the parse
