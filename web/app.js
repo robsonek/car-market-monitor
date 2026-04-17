@@ -10,6 +10,16 @@ import {
   upsertWatchlistEntry,
   watchlistEntryKey,
 } from "./watchlist.js";
+import {
+  SAVED_FILTERS_STORAGE_KEY,
+  findSavedFilter,
+  generateSavedFilterId,
+  parseSavedFilters,
+  removeSavedFilter,
+  renameSavedFilter,
+  serializeSavedFilters,
+  upsertSavedFilter,
+} from "./saved-filters.js";
 import { diffValueAddedServices, formatValueAddedServiceName } from "../shared/value-added-services.js";
 
 // sql.js (loader + wasm) jest vendoryzowany lokalnie w /web/. Cross-origin
@@ -25,6 +35,7 @@ const state = {
   db: null,
   sizeBytes: 0,
   watchlistEntries: [],
+  savedFilterEntries: [],
   galleryLightbox: null,
   closeTopbarMenu: null,
   scrollPositions: new Map(),
@@ -103,6 +114,7 @@ async function init() {
   initTheme();
   initTopbarMenu();
   syncWatchlistStateFromStorage();
+  syncSavedFiltersFromStorage();
   initGalleryLightbox();
   try {
     const loaded = await loadDb();
@@ -256,6 +268,29 @@ function setListingWatched(listingLike, watched) {
 
 function toggleListingWatched(listingLike) {
   return setListingWatched(listingLike, !isListingWatched(listingLike));
+}
+
+// ---------- saved filters ----------
+
+function loadSavedFiltersFromStorage() {
+  try {
+    return parseSavedFilters(localStorage.getItem(SAVED_FILTERS_STORAGE_KEY));
+  } catch {
+    return [];
+  }
+}
+
+function syncSavedFiltersFromStorage() {
+  state.savedFilterEntries = loadSavedFiltersFromStorage();
+}
+
+function persistSavedFilterEntries(entries) {
+  state.savedFilterEntries = entries;
+  try {
+    localStorage.setItem(SAVED_FILTERS_STORAGE_KEY, serializeSavedFilters(entries));
+  } catch (error) {
+    console.warn("Failed to persist saved filters", error);
+  }
 }
 
 function updateWatchlistNav() {
@@ -946,10 +981,14 @@ window.addEventListener("hashchange", (event) => {
   route({ scrollMode, preservedScrollTop, scrollTarget });
 });
 window.addEventListener("storage", (event) => {
-  if (event.key != null && event.key !== WATCHLIST_STORAGE_KEY) return;
-  syncWatchlistStateFromStorage();
+  const key = event.key;
+  if (key != null && key !== WATCHLIST_STORAGE_KEY && key !== SAVED_FILTERS_STORAGE_KEY) return;
+  if (key == null || key === WATCHLIST_STORAGE_KEY) syncWatchlistStateFromStorage();
+  if (key == null || key === SAVED_FILTERS_STORAGE_KEY) syncSavedFiltersFromStorage();
   const { path } = parseHash();
-  if (state.db && path === "#/watchlist") route();
+  if (!state.db) return;
+  if (path === "#/watchlist") route();
+  else if (path === "#/listings" && (key == null || key === SAVED_FILTERS_STORAGE_KEY)) route();
 });
 window.addEventListener("DOMContentLoaded", init);
 
@@ -1805,6 +1844,8 @@ function viewListings(view, params) {
   const bodyTypeSelect = dynamicEnumSelect("bodyType", "body_type");
   const gearboxSelect = dynamicEnumSelect("gearbox", "gearbox");
 
+  const savedFiltersCombo = buildSavedFiltersCombo(params);
+
   // Layout: top row is a dedicated 2-col grid for title/description search
   // and seller search. The rest of the controls stay as flat children of the
   // main .filters grid, with actions spanning the full row at the bottom.
@@ -1839,6 +1880,7 @@ function viewListings(view, params) {
         { type: "button", class: "secondary", onclick: () => navigate("#/listings", sellerFilterParams) },
         sellerScope || params.sellerQuery ? "Reset filtrów" : "Reset",
       ),
+      savedFiltersCombo,
       el("button", { type: "submit" }, "Filtruj"),
     ),
   );
@@ -1870,6 +1912,235 @@ function viewListings(view, params) {
       }
     }
     navigate("#/listings", next);
+  }
+
+  function buildSavedFiltersCombo(activeParams) {
+    const menu = el("div", { class: "saved-filters-menu", hidden: "" });
+    const badge = el("span", { class: "saved-filters-count", hidden: "" });
+    const toggle = el(
+      "button",
+      {
+        type: "button",
+        class: "secondary saved-filters-toggle",
+        "aria-haspopup": "true",
+        "aria-expanded": "false",
+      },
+      "Moje filtry",
+      badge,
+    );
+    const combo = el("div", { class: "saved-filters-combo" }, toggle, menu);
+
+    let outsideClickHandler = null;
+    let escapeHandler = null;
+
+    function closeMenu() {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      if (outsideClickHandler) {
+        document.removeEventListener("mousedown", outsideClickHandler);
+        outsideClickHandler = null;
+      }
+      if (escapeHandler) {
+        document.removeEventListener("keydown", escapeHandler);
+        escapeHandler = null;
+      }
+    }
+
+    function openMenu() {
+      if (!menu.hidden) return;
+      renderMenu();
+      menu.hidden = false;
+      toggle.setAttribute("aria-expanded", "true");
+      outsideClickHandler = (event) => {
+        if (combo.contains(event.target)) return;
+        closeMenu();
+      };
+      escapeHandler = (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeMenu();
+          toggle.focus();
+        }
+      };
+      document.addEventListener("mousedown", outsideClickHandler);
+      document.addEventListener("keydown", escapeHandler);
+    }
+
+    toggle.addEventListener("click", () => {
+      if (menu.hidden) openMenu();
+      else closeMenu();
+    });
+
+    function updateBadge() {
+      const count = state.savedFilterEntries.length;
+      if (count > 0) {
+        badge.textContent = String(count);
+        badge.hidden = false;
+      } else {
+        badge.textContent = "";
+        badge.hidden = true;
+      }
+    }
+
+    function currentParamsForSave() {
+      // Presety zapisują zaaplikowany stan (URL), a nie niezaaplikowane
+      // zmiany w formularzu. Użytkownik musi kliknąć "Filtruj" żeby mieć
+      // pewność, że zapisze dokładnie to, co widzi na liście.
+      const snapshot = {};
+      for (const [key, value] of Object.entries(activeParams || {})) {
+        if (key === "page") continue;
+        if (value == null) continue;
+        const str = String(value).trim();
+        if (!str) continue;
+        snapshot[key] = str;
+      }
+      return snapshot;
+    }
+
+    function applyPreset(entry) {
+      closeMenu();
+      navigate("#/listings", entry.params);
+    }
+
+    async function handleSaveCurrent() {
+      const snapshot = currentParamsForSave();
+      const suggested = suggestFilterName(snapshot);
+      closeMenu();
+      const name = await openTextPrompt({
+        title: "Zapisz filtr",
+        label: "Nazwa zapisanego filtra",
+        initialValue: suggested,
+        confirmLabel: "Zapisz",
+      });
+      if (name === null) return;
+      const now = new Date().toISOString();
+      const entry = {
+        id: generateSavedFilterId(),
+        name,
+        params: snapshot,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const nextEntries = upsertSavedFilter(state.savedFilterEntries, entry);
+      persistSavedFilterEntries(nextEntries);
+      updateBadge();
+    }
+
+    function handleOverwrite(entry) {
+      const snapshot = currentParamsForSave();
+      const now = new Date().toISOString();
+      const nextEntries = upsertSavedFilter(state.savedFilterEntries, {
+        ...entry,
+        params: snapshot,
+        updatedAt: now,
+      });
+      persistSavedFilterEntries(nextEntries);
+      renderMenu();
+      updateBadge();
+    }
+
+    async function handleRename(entry) {
+      closeMenu();
+      const name = await openTextPrompt({
+        title: "Zmień nazwę filtra",
+        label: "Nowa nazwa",
+        initialValue: entry.name,
+        confirmLabel: "Zapisz",
+      });
+      if (name === null) return;
+      if (name === entry.name) return;
+      const nextEntries = renameSavedFilter(state.savedFilterEntries, entry.id, name);
+      persistSavedFilterEntries(nextEntries);
+    }
+
+    async function handleRemove(entry) {
+      closeMenu();
+      const ok = await openConfirmDialog({
+        title: "Usunąć filtr?",
+        message: `Filtr "${entry.name}" zostanie trwale usunięty.`,
+        confirmLabel: "Usuń",
+        destructive: true,
+      });
+      if (!ok) return;
+      const nextEntries = removeSavedFilter(state.savedFilterEntries, entry.id);
+      persistSavedFilterEntries(nextEntries);
+      updateBadge();
+    }
+
+    function renderMenu() {
+      menu.innerHTML = "";
+      const entries = state.savedFilterEntries;
+
+      if (entries.length === 0) {
+        menu.appendChild(el("div", { class: "saved-filters-empty" }, "Brak zapisanych filtrów"));
+      } else {
+        const list = el("div", { class: "saved-filters-list" });
+        for (const entry of entries) {
+          const paramsCount = Object.keys(entry.params).length;
+          const applyBtn = el(
+            "button",
+            {
+              type: "button",
+              class: "saved-filter-apply",
+              title: "Zastosuj filtr",
+              onclick: () => applyPreset(entry),
+            },
+            el("span", { class: "saved-filter-name" }, entry.name),
+            el("span", { class: "saved-filter-meta" }, `${paramsCount} ${paramsCount === 1 ? "parametr" : "parametrów"}`),
+          );
+          const overwriteBtn = el(
+            "button",
+            {
+              type: "button",
+              class: "icon-only",
+              title: "Nadpisz aktualnymi filtrami",
+              "aria-label": "Nadpisz aktualnymi filtrami",
+              onclick: () => handleOverwrite(entry),
+            },
+            "⟳",
+          );
+          const renameBtn = el(
+            "button",
+            {
+              type: "button",
+              class: "icon-only",
+              title: "Zmień nazwę",
+              "aria-label": "Zmień nazwę",
+              onclick: () => handleRename(entry),
+            },
+            "✎",
+          );
+          const removeBtn = el(
+            "button",
+            {
+              type: "button",
+              class: "icon-only saved-filter-remove",
+              title: "Usuń",
+              "aria-label": "Usuń",
+              onclick: () => handleRemove(entry),
+            },
+            "×",
+          );
+          list.appendChild(el("div", { class: "saved-filter-item" }, applyBtn, overwriteBtn, renameBtn, removeBtn));
+        }
+        menu.appendChild(list);
+      }
+
+      const saveBtn = el(
+        "button",
+        {
+          type: "button",
+          class: "saved-filters-save",
+          onclick: handleSaveCurrent,
+        },
+        "Zapisz obecne filtry",
+      );
+      menu.appendChild(el("div", { class: "saved-filters-actions" }, saveBtn));
+    }
+
+    updateBadge();
+    return combo;
   }
 
   // Build SQL
@@ -3517,11 +3788,263 @@ function renderImageDiffSide(side, ownValue, oppositeValue) {
 // (the human labels live separately in advert.parametersDict[*].values[0].label
 // and weren't materialized into columns). For now: best-effort prettification —
 // replace separators with spaces and uppercase the first letter.
+// Custom prompt dialog zamiast window.prompt — zachowuje wygląd
+// aplikacji (dark/light theme, panel styling). Zwraca Promise<string|null>:
+// string = potwierdzona wartość (po trim), null = anulowane (Esc / Anuluj
+// / klik backdrop).
+function openTextPrompt({
+  title,
+  label,
+  initialValue = "",
+  confirmLabel = "Zapisz",
+  cancelLabel = "Anuluj",
+  placeholder = "",
+} = {}) {
+  return new Promise((resolve) => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    let settled = false;
+
+    function settle(value) {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("keydown", onKeydown, true);
+      overlay.remove();
+      document.body.classList.remove("app-modal-open");
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus();
+      }
+      resolve(value);
+    }
+
+    function onKeydown(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        settle(null);
+      } else if (event.key === "Tab") {
+        // Focus trap — cyklujemy między inputem a przyciskami.
+        const focusable = [inputEl, cancelBtn, confirmBtn];
+        const active = document.activeElement;
+        const idx = focusable.indexOf(active);
+        if (idx === -1) {
+          event.preventDefault();
+          inputEl.focus();
+          return;
+        }
+        const nextIdx = event.shiftKey ? (idx - 1 + focusable.length) % focusable.length : (idx + 1) % focusable.length;
+        event.preventDefault();
+        focusable[nextIdx].focus();
+      }
+    }
+
+    const titleId = `app-modal-title-${Math.random().toString(36).slice(2, 8)}`;
+    const inputEl = el("input", {
+      type: "text",
+      class: "app-modal-input",
+      value: initialValue,
+      placeholder,
+      autocomplete: "off",
+      spellcheck: "false",
+    });
+    const cancelBtn = el(
+      "button",
+      { type: "button", class: "secondary", onclick: () => settle(null) },
+      cancelLabel,
+    );
+    const confirmBtn = el("button", { type: "submit" }, confirmLabel);
+
+    const form = el(
+      "form",
+      {
+        class: "app-modal-dialog",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": titleId,
+        onsubmit: (event) => {
+          event.preventDefault();
+          const value = inputEl.value.trim();
+          if (!value) {
+            inputEl.focus();
+            inputEl.select();
+            return;
+          }
+          settle(value);
+        },
+      },
+      el("div", { class: "app-modal-title", id: titleId }, title || ""),
+      label ? el("label", { class: "app-modal-label" }, label) : null,
+      inputEl,
+      el("div", { class: "app-modal-actions" }, cancelBtn, confirmBtn),
+    );
+
+    const overlay = el(
+      "div",
+      {
+        class: "app-modal-backdrop",
+        onmousedown: (event) => {
+          if (event.target === overlay) settle(null);
+        },
+      },
+      form,
+    );
+
+    document.body.appendChild(overlay);
+    document.body.classList.add("app-modal-open");
+    document.addEventListener("keydown", onKeydown, true);
+    inputEl.focus();
+    inputEl.select();
+  });
+}
+
+// Custom confirm dialog w stylu strony — zwraca Promise<boolean>:
+// true = potwierdzone, false = anulowane (Esc / Anuluj / backdrop).
+function openConfirmDialog({
+  title,
+  message,
+  confirmLabel = "OK",
+  cancelLabel = "Anuluj",
+  destructive = false,
+} = {}) {
+  return new Promise((resolve) => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    let settled = false;
+
+    function settle(value) {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("keydown", onKeydown, true);
+      overlay.remove();
+      document.body.classList.remove("app-modal-open");
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus();
+      }
+      resolve(value);
+    }
+
+    function onKeydown(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        settle(false);
+      } else if (event.key === "Tab") {
+        const focusable = [cancelBtn, confirmBtn];
+        const active = document.activeElement;
+        const idx = focusable.indexOf(active);
+        if (idx === -1) {
+          event.preventDefault();
+          confirmBtn.focus();
+          return;
+        }
+        const nextIdx = event.shiftKey ? (idx - 1 + focusable.length) % focusable.length : (idx + 1) % focusable.length;
+        event.preventDefault();
+        focusable[nextIdx].focus();
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        settle(true);
+      }
+    }
+
+    const titleId = `app-modal-title-${Math.random().toString(36).slice(2, 8)}`;
+    const cancelBtn = el(
+      "button",
+      { type: "button", class: "secondary", onclick: () => settle(false) },
+      cancelLabel,
+    );
+    const confirmBtn = el(
+      "button",
+      {
+        type: "button",
+        class: destructive ? "app-modal-confirm-destructive" : "",
+        onclick: () => settle(true),
+      },
+      confirmLabel,
+    );
+
+    const dialog = el(
+      "div",
+      {
+        class: "app-modal-dialog",
+        role: "alertdialog",
+        "aria-modal": "true",
+        "aria-labelledby": titleId,
+      },
+      el("div", { class: "app-modal-title", id: titleId }, title || ""),
+      message ? el("div", { class: "app-modal-message" }, message) : null,
+      el("div", { class: "app-modal-actions" }, cancelBtn, confirmBtn),
+    );
+
+    const overlay = el(
+      "div",
+      {
+        class: "app-modal-backdrop",
+        onmousedown: (event) => {
+          if (event.target === overlay) settle(false);
+        },
+      },
+      dialog,
+    );
+
+    document.body.appendChild(overlay);
+    document.body.classList.add("app-modal-open");
+    document.addEventListener("keydown", onKeydown, true);
+    confirmBtn.focus();
+  });
+}
+
 function formatEnum(slug) {
   if (slug == null || slug === "") return "—";
   const s = String(slug).replace(/[-_]+/g, " ").trim();
   if (!s) return "—";
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function formatPriceInK(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n >= 1000) {
+    const k = n / 1000;
+    return `${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k`;
+  }
+  return `${n}`;
+}
+
+// Generuje krótką etykietę presetu z aktywnych filtrów — użytkownik
+// może ją edytować, ale domyślna wartość ma sens i pomaga szybko
+// rozpoznać zestaw bez otwierania szczegółów.
+function suggestFilterName(params) {
+  const parts = [];
+  const p = params || {};
+  if (p.q) parts.push(`"${String(p.q).trim()}"`);
+  if (p.sellerQuery) parts.push(String(p.sellerQuery).trim());
+  if (p.minYear && p.maxYear) parts.push(`${p.minYear}-${p.maxYear}`);
+  else if (p.minYear) parts.push(`od ${p.minYear}`);
+  else if (p.maxYear) parts.push(`do ${p.maxYear}`);
+  const minPriceLabel = formatPriceInK(p.minPrice);
+  const maxPriceLabel = formatPriceInK(p.maxPrice);
+  if (minPriceLabel && maxPriceLabel) parts.push(`${minPriceLabel}-${maxPriceLabel} PLN`);
+  else if (maxPriceLabel) parts.push(`do ${maxPriceLabel} PLN`);
+  else if (minPriceLabel) parts.push(`od ${minPriceLabel} PLN`);
+  if (p.minMileage && p.maxMileage) parts.push(`${p.minMileage}-${p.maxMileage} km`);
+  else if (p.maxMileage) parts.push(`do ${p.maxMileage} km`);
+  else if (p.minMileage) parts.push(`od ${p.minMileage} km`);
+  if (p.minPower && p.maxPower) parts.push(`${p.minPower}-${p.maxPower} KM`);
+  else if (p.maxPower) parts.push(`do ${p.maxPower} KM`);
+  else if (p.minPower) parts.push(`od ${p.minPower} KM`);
+  if (p.fuelType) parts.push(formatEnum(p.fuelType));
+  if (p.bodyType) parts.push(formatEnum(p.bodyType));
+  if (p.gearbox) parts.push(formatEnum(p.gearbox));
+  if (p.country) parts.push(formatEnum(p.country));
+  if (p.newUsed) parts.push(formatEnum(p.newUsed));
+  if (p.damaged === "1") parts.push("uszkodzony");
+  if (p.damaged === "0") parts.push("nieuszkodzony");
+  if (p.noAccident === "1") parts.push("bezwypadkowy");
+  if (p.serviceRecord === "1") parts.push("z książką");
+  if (p.active === "1") parts.push("aktywne");
+  if (p.active === "0") parts.push("nieaktywne");
+  if (p.source) parts.push(String(p.source));
+  if (parts.length === 0) {
+    return `Filtr z ${new Date().toLocaleString("pl-PL", { dateStyle: "short", timeStyle: "short" })}`;
+  }
+  const joined = parts.join(", ");
+  return joined.length > 80 ? `${joined.slice(0, 77)}…` : joined;
 }
 
 // phones_json shape from migration 0003: {"main":[...],"description":[...]}.
