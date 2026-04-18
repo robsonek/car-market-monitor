@@ -2343,7 +2343,7 @@ function viewListings(view, params) {
       el("td", { class: "num" }, r.engine_power != null ? `${r.engine_power}` : "—"),
       el("td", { class: "num" }, formatPrice(r.last_price_amount)),
       el("td", { class: "muted tabular" }, formatDate(r.advert_original_created_at)),
-      el("td", { class: "muted tabular" }, formatRelative(latestEditAt(r))),
+      lastEditCell(r),
       el("td", { class: "muted tabular" }, formatRelative(r.last_seen_at)),
       el("td", {}, el("a", { href: r.listing_url, target: "_blank", rel: "noopener" }, "link ↗")),
     );
@@ -2383,6 +2383,18 @@ function latestEditAt(row) {
     .filter((v) => typeof v === "string" && v.trim() !== "");
   if (candidates.length === 0) return null;
   return candidates.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a));
+}
+
+function isRecentEdit(value, maxAgeMs = 24 * 60 * 60 * 1000) {
+  const ts = Date.parse(value || "");
+  return Number.isFinite(ts) && Date.now() - ts <= maxAgeMs;
+}
+
+function lastEditCell(row) {
+  const value = latestEditAt(row);
+  const recent = isRecentEdit(value);
+  const cls = recent ? "tabular recent-edit" : "muted tabular";
+  return el("td", { class: cls }, formatRelative(value));
 }
 
 function viewWatchlist(view) {
@@ -2473,7 +2485,7 @@ function viewWatchlist(view) {
     el("td", { class: "muted" }, formatEnum(row.fuel_type)),
     el("td", { class: "num" }, row.engine_power != null ? `${row.engine_power}` : "—"),
     el("td", { class: "num" }, formatPrice(row.last_price_amount)),
-    el("td", { class: "muted tabular" }, formatRelative(latestEditAt(row))),
+    lastEditCell(row),
     el("td", { class: "muted tabular" }, formatRelative(row.last_seen_at)),
     el("td", {}, removeBtn),
     el("td", {}, el("a", { href: row.listing_url, target: "_blank", rel: "noopener" }, "link ↗")),
