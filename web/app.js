@@ -2342,7 +2342,7 @@ function viewListings(view, params) {
       el("td", { class: "muted" }, formatEnum(r.fuel_type)),
       el("td", { class: "num" }, r.engine_power != null ? `${r.engine_power}` : "—"),
       el("td", { class: "num" }, formatPrice(r.last_price_amount)),
-      el("td", { class: "muted tabular" }, formatDate(r.advert_original_created_at)),
+      el("td", { class: "muted tabular" }, formatRelative(r.advert_original_created_at)),
       lastEditCell(r),
       el("td", { class: "muted tabular" }, formatRelative(r.last_seen_at)),
       el("td", {}, el("a", { href: r.listing_url, target: "_blank", rel: "noopener" }, "link ↗")),
