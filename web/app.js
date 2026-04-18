@@ -1524,6 +1524,7 @@ function viewActivity(view, params = {}) {
 }
 
 function viewListings(view, params) {
+  view.classList.add("view-wide");
   view.appendChild(el("h1", {}, "Listings"));
 
   const sources = query(state.db, "SELECT id, name FROM sources ORDER BY created_at ASC");
@@ -2264,7 +2265,8 @@ function viewListings(view, params) {
     state.db,
     `SELECT l.id, l.external_id, l.title, l.listing_url, l.is_active,
             l.last_price_amount, l.last_mileage, l.last_year, l.last_seen_at,
-            l.advert_original_created_at, l.fuel_type, l.engine_power
+            l.advert_original_created_at, l.advert_updated_at, l.advert_created_at,
+            l.fuel_type, l.engine_power
      ${fromClause}
      ORDER BY ${sortExpr} ${sortDir} NULLS LAST, l.title ASC
      LIMIT ? OFFSET ?`,
@@ -2322,6 +2324,7 @@ function viewListings(view, params) {
       sortableTh("KM", "power", { numeric: true }),
       sortableTh("Cena", "price", { numeric: true }),
       sortableTh("Data dodania", "ad_date", { numeric: true }),
+      el("th", {}, "Ostatnia edycja"),
       sortableTh("Last seen", "last_seen", { numeric: true }),
       el("th", {}, ""),
     ),
@@ -2340,6 +2343,7 @@ function viewListings(view, params) {
       el("td", { class: "num" }, r.engine_power != null ? `${r.engine_power}` : "—"),
       el("td", { class: "num" }, formatPrice(r.last_price_amount)),
       el("td", { class: "muted tabular" }, formatDate(r.advert_original_created_at)),
+      el("td", { class: "muted tabular" }, formatRelative(latestEditAt(r))),
       el("td", { class: "muted tabular" }, formatRelative(r.last_seen_at)),
       el("td", {}, el("a", { href: r.listing_url, target: "_blank", rel: "noopener" }, "link ↗")),
     );
