@@ -306,7 +306,7 @@ td.num, th.num {
      needing separate flex/grid wrappers in JS. align-items: end + uniform
      control heights keep all inputs on the same baseline. */
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 12px 10px;
   align-items: end;
 }

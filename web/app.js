@@ -2230,8 +2230,6 @@ function viewListings(view, params) {
     price: "CAST(l.last_price_amount AS REAL)",
     power: "l.engine_power",
     fuel_type: "l.fuel_type",
-    body_type: "l.body_type",
-    gearbox: "l.gearbox",
     ad_date: "l.advert_original_created_at",
     last_edit: "COALESCE(MAX(l.advert_updated_at, l.advert_created_at), l.advert_updated_at, l.advert_created_at)",
     last_seen: "l.last_seen_at",
@@ -2269,7 +2267,7 @@ function viewListings(view, params) {
     `SELECT l.id, l.external_id, l.title, l.listing_url, l.is_active,
             l.last_price_amount, l.last_mileage, l.last_year, l.last_seen_at,
             l.advert_original_created_at, l.advert_updated_at, l.advert_created_at,
-            l.fuel_type, l.body_type, l.gearbox, l.engine_power
+            l.fuel_type, l.engine_power
      ${fromClause}
      ORDER BY ${sortExpr} ${sortDir} NULLS LAST, l.title ASC
      LIMIT ? OFFSET ?`,
@@ -2324,8 +2322,6 @@ function viewListings(view, params) {
       sortableTh("Rok", "year", { numeric: true }),
       sortableTh("Przebieg", "mileage", { numeric: true }),
       sortableTh("Paliwo", "fuel_type"),
-      sortableTh("Nadwozie", "body_type"),
-      sortableTh("Skrzynia", "gearbox"),
       sortableTh("KM", "power", { numeric: true }),
       sortableTh("Cena", "price", { numeric: true }),
       sortableTh("Data dodania", "ad_date", { numeric: true }),
@@ -2345,8 +2341,6 @@ function viewListings(view, params) {
       el("td", { class: "num" }, r.last_year || "—"),
       el("td", { class: "num" }, formatMileage(r.last_mileage)),
       el("td", { class: "muted" }, formatEnum(r.fuel_type)),
-      el("td", { class: "muted" }, formatEnum(r.body_type)),
-      el("td", { class: "muted" }, formatEnum(r.gearbox)),
       el("td", { class: "num" }, r.engine_power != null ? `${r.engine_power}` : "—"),
       el("td", { class: "num" }, formatPrice(r.last_price_amount)),
       el("td", { class: "muted tabular" }, formatRelative(r.advert_original_created_at)),
