@@ -2374,6 +2374,13 @@ function viewListings(view, params) {
   }
 }
 
+function latestEditAt(row) {
+  const candidates = [row.advert_updated_at, row.advert_created_at]
+    .filter((v) => typeof v === "string" && v.trim() !== "");
+  if (candidates.length === 0) return null;
+  return candidates.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a));
+}
+
 function viewWatchlist(view) {
   view.classList.add("view-wide");
   view.appendChild(el("h1", {}, "Watchlist"));
@@ -2395,7 +2402,7 @@ function viewWatchlist(view) {
     state.db,
     `SELECT l.id, l.source_id, l.external_id, l.title, l.listing_url, l.is_active,
             l.last_price_amount, l.last_mileage, l.last_year, l.last_seen_at,
-            l.fuel_type, l.engine_power, l.advert_updated_at
+            l.fuel_type, l.engine_power, l.advert_updated_at, l.advert_created_at
      FROM listings l
      WHERE ${whereClause}`,
     args,
@@ -2462,7 +2469,7 @@ function viewWatchlist(view) {
     el("td", { class: "muted" }, formatEnum(row.fuel_type)),
     el("td", { class: "num" }, row.engine_power != null ? `${row.engine_power}` : "—"),
     el("td", { class: "num" }, formatPrice(row.last_price_amount)),
-    el("td", { class: "muted tabular" }, formatRelative(row.advert_updated_at)),
+    el("td", { class: "muted tabular" }, formatRelative(latestEditAt(row))),
     el("td", { class: "muted tabular" }, formatRelative(row.last_seen_at)),
     el("td", {}, removeBtn),
     el("td", {}, el("a", { href: row.listing_url, target: "_blank", rel: "noopener" }, "link ↗")),
