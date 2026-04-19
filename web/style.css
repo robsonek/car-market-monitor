@@ -1654,6 +1654,53 @@ body.gallery-lightbox-open {
 .muted { color: var(--muted); }
 .tabular { font-variant-numeric: tabular-nums; }
 
+.activity-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.activity-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: -1px;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.activity-tab:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+.activity-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.activity-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 12px;
+  border-radius: 10px;
+  background: var(--border);
+  color: var(--muted);
+}
+.activity-tab.active .activity-tab-count {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
 .row-link {
   color: var(--text);
   font-weight: 500;
