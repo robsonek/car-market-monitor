@@ -8,3 +8,4 @@ db/*.sqlite-wal
 db/*.sqlite-shm
 VIN+TEL.md
 CLAUDE.md
+.claude/
