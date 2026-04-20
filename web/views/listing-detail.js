@@ -76,13 +76,34 @@ export function viewListingDetail(view, id) {
   // into "null"/"undefined" text nodes (manifested as stray "nullnull" next
   // to spec cards for non-EV listings where battery_capacity/autonomy are
   // null). Our `el()` helper filters these out, but raw DOM append does not.
+  // Snapshot payload ładujemy przed cardList — potrzebujemy z niego
+  // value_added_services do karty "Ostatnie podbicie". Galeria i opis poniżej
+  // używają tego samego obiektu, więc parsujemy raz.
+  const lastSnapshot = listing.last_snapshot_id
+    ? query(state.db, "SELECT payload_json FROM listing_snapshots WHERE id = ?", [listing.last_snapshot_id])[0]
+    : null;
+  let snapshotPayload = null;
+  let galleryUrls = [];
+  if (lastSnapshot?.payload_json) {
+    try {
+      snapshotPayload = JSON.parse(lastSnapshot.payload_json);
+      if (Array.isArray(snapshotPayload.images?.urls)) {
+        galleryUrls = snapshotPayload.images.urls;
+      }
+    } catch {}
+  }
+  const lastBumpAt = Array.isArray(snapshotPayload?.value_added_services)
+    ? snapshotPayload.value_added_services.find((s) => s?.name === "bump_up")?.appliedAt ?? null
+    : null;
+
   const hasSpecs = listing.fuel_type || listing.body_type || listing.gearbox || listing.engine_power;
   const cardList = [
     statCard("Cena", formatPrice(listing.last_price_amount)),
     statCard("Rok", listing.year || listing.last_year || "—"),
     statCard("Przebieg", formatMileage(listing.mileage || listing.last_mileage)),
     statCard("Dodano na otomoto", formatDate(listing.advert_original_created_at)),
-    statCard("Ostatni republish", formatDate(listing.advert_created_at)),
+    statCard("Widoczna data", formatDate(listing.advert_created_at)),
+    lastBumpAt ? statCard("Ostatnie podbicie", formatDate(lastBumpAt)) : null,
     statCard("Ostatnia edycja", formatDate(listing.advert_updated_at)),
     statCard("Monitorowane od", formatDate(listing.first_seen_at)),
     statCard("Ostatnio widoczne", formatDate(listing.last_seen_at)),
@@ -100,24 +121,9 @@ export function viewListingDetail(view, id) {
   view.appendChild(cards);
 
   // ----- Panel: Gallery (zdjęcia z last snapshot payload_json) -----
-  // Lazy parse — snapshot payload_json is ~26 KB and we want to skip the parse
-  // for listings that don't have a snapshot yet (card-only placeholders after
-  // a failed detail fetch). Renders a responsive CSS grid of 4:3 thumbnails,
-  // klik otwiera lightbox wewnątrz aplikacji zamiast wysyłać usera do nowej
-  // karty z CDN-em marketplace'u.
-  const lastSnapshot = listing.last_snapshot_id
-    ? query(state.db, "SELECT payload_json FROM listing_snapshots WHERE id = ?", [listing.last_snapshot_id])[0]
-    : null;
-  let snapshotPayload = null;
-  let galleryUrls = [];
-  if (lastSnapshot?.payload_json) {
-    try {
-      snapshotPayload = JSON.parse(lastSnapshot.payload_json);
-      if (Array.isArray(snapshotPayload.images?.urls)) {
-        galleryUrls = snapshotPayload.images.urls;
-      }
-    } catch {}
-  }
+  // Renders a responsive CSS grid of 4:3 thumbnails, klik otwiera lightbox
+  // wewnątrz aplikacji zamiast wysyłać usera do nowej karty z CDN-em
+  // marketplace'u.
   if (galleryUrls.length > 0) {
     const thumbUrls = galleryUrls.map((u) => u + ";s=268x0;q=80");
     const fullUrls = galleryUrls.map((u) => u + ";s=3412x0;q=100");
