@@ -4,6 +4,7 @@ __pycache__/
 node_modules/
 output/
 local-payload-archive/
+agents.md
 db/*.sqlite-journal
 db/*.sqlite-wal
 db/*.sqlite-shm
