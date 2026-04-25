@@ -897,6 +897,31 @@ button.secondary {
   font-weight: 600;
 }
 
+.sparkline-guide {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkline-baseline {
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkline-tick {
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkline-date {
+  fill: #6b7280;
+  font-size: 11px;
+}
+
 .timeline {
   list-style: none;
   padding: 0;

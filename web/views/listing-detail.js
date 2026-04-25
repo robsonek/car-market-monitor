@@ -373,7 +373,7 @@ export function viewListingDetail(view, id) {
     pricePanel.appendChild(el("div", { class: "panel-header" }, `Historia ceny (${priceSeries.length} snapshotów)`));
     pricePanel.appendChild(
       priceSeries.length >= 2
-        ? renderSparkline(priceSeries, 720, 120)
+        ? renderSparkline(priceSeries, 720, 150)
         : el("p", { class: "empty" }, "Za mało snapshotów żeby narysować historię."),
     );
     view.appendChild(pricePanel);
@@ -384,7 +384,7 @@ export function viewListingDetail(view, id) {
     mileagePanel.appendChild(el("div", { class: "panel-header" }, `Historia przebiegu (${mileageSeries.length} snapshotów)`));
     mileagePanel.appendChild(
       mileageSeries.length >= 2
-        ? renderSparkline(mileageSeries, 720, 120, { color: "#10b981", formatLabel: formatMileage })
+        ? renderSparkline(mileageSeries, 720, 150, { color: "#10b981", formatLabel: formatMileage })
         : el("p", { class: "empty" }, "Za mało snapshotów żeby narysować historię."),
     );
     view.appendChild(mileagePanel);

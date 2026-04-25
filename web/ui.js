@@ -442,7 +442,7 @@ export function openConfirmDialog({
 // ---------- sparkline ----------
 
 export function renderSparkline(series, width, height, { color = "#2563eb", formatLabel = formatPrice } = {}) {
-  // SVG with line + dots + min/max labels.
+  // SVG with line + dots + min/max labels + bottom date axis.
   if (series.length < 2) return el("p", { class: "empty" }, "Brak danych.");
   const yMaxLabel = formatLabel(Math.max(...series.map((p) => p.v)));
   const yMinLabel = formatLabel(Math.min(...series.map((p) => p.v)));
@@ -450,7 +450,9 @@ export function renderSparkline(series, width, height, { color = "#2563eb", form
   // sits on top of the text (visible for short series with a high first point).
   const padLeft = Math.max(72, Math.min(width * 0.26, Math.max(yMaxLabel.length, yMinLabel.length) * 8 + 16));
   const padRight = 20;
-  const padY = 16;
+  const padTop = 16;
+  // Bottom padding reserves a band for date ticks under the chart baseline.
+  const padBottom = 36;
   const xs = series.map((p) => p.t);
   const ys = series.map((p) => p.v);
   const xMin = Math.min(...xs);
@@ -460,9 +462,51 @@ export function renderSparkline(series, width, height, { color = "#2563eb", form
   const xRange = xMax - xMin || 1;
   const yRange = yMax - yMin || 1;
   const sx = (t) => padLeft + ((t - xMin) / xRange) * (width - padLeft - padRight);
-  const sy = (v) => height - padY - ((v - yMin) / yRange) * (height - padY * 2);
+  const sy = (v) => height - padBottom - ((v - yMin) / yRange) * (height - padTop - padBottom);
+  const baselineY = height - padBottom;
+
+  // DD.MM short format for the bottom axis - full date is still in tooltip/title.
+  const formatAxisDate = (t) => {
+    const d = new Date(t);
+    return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
+
+  // Decide which dot indices get a visible date label. Always show first and
+  // last; fill the middle as long as labels stay > minLabelGap apart so they
+  // do not overlap visually.
+  const minLabelGap = 38;
+  const showLabel = new Array(series.length).fill(false);
+  if (series.length > 0) {
+    showLabel[0] = true;
+    showLabel[series.length - 1] = series.length > 1;
+    let lastShownX = sx(series[0].t);
+    const lastIdxX = sx(series[series.length - 1].t);
+    for (let i = 1; i < series.length - 1; i++) {
+      const x = sx(series[i].t);
+      if (x - lastShownX >= minLabelGap && lastIdxX - x >= minLabelGap) {
+        showLabel[i] = true;
+        lastShownX = x;
+      }
+    }
+  }
 
   const path = series.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.t).toFixed(1)},${sy(p.v).toFixed(1)}`).join(" ");
+
+  const guides = series.map((p) => {
+    const x = sx(p.t).toFixed(1);
+    return `<line class="sparkline-guide" x1="${x}" y1="${sy(p.v).toFixed(1)}" x2="${x}" y2="${baselineY.toFixed(1)}" />`;
+  }).join("");
+
+  const dateTicks = series.map((p, i) => {
+    if (!showLabel[i]) return "";
+    const x = sx(p.t).toFixed(1);
+    const label = escapeHtml(formatAxisDate(p.t));
+    return `
+      <line class="sparkline-tick" x1="${x}" y1="${baselineY.toFixed(1)}" x2="${x}" y2="${(baselineY + 4).toFixed(1)}" />
+      <text class="sparkline-date" x="${x}" y="${(baselineY + 18).toFixed(1)}" text-anchor="middle">${label}</text>
+    `;
+  }).join("");
+
   const dots = series.map((p) => {
     const x = sx(p.t);
     const y = sy(p.v);
@@ -472,7 +516,7 @@ export function renderSparkline(series, width, height, { color = "#2563eb", form
     const titleLabel = escapeHtml(`${valueLabel} · ${dateLabel}`);
     const tooltipWidth = Math.min(width - 16, Math.max(56, valueLabel.length * 7 + 18));
     const tooltipLeft = Math.max(8, Math.min(width - tooltipWidth - 8, x - tooltipWidth / 2));
-    const tooltipTop = y > padY + 32 ? y - 34 : y + 12;
+    const tooltipTop = y > padTop + 32 ? y - 34 : y + 12;
     return `
       <g class="sparkline-point" tabindex="0">
         <title>${titleLabel}</title>
@@ -488,8 +532,11 @@ export function renderSparkline(series, width, height, { color = "#2563eb", form
 
   const svg = `
     <svg class="sparkline" viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet">
-      <text x="8" y="${(padY + 4).toFixed(0)}" font-size="11" fill="#6b7280">${yMaxLabel}</text>
-      <text x="8" y="${height - 4}" font-size="11" fill="#6b7280">${yMinLabel}</text>
+      <text x="8" y="${(padTop + 4).toFixed(0)}" font-size="11" fill="#6b7280">${yMaxLabel}</text>
+      <text x="8" y="${(baselineY + 4).toFixed(0)}" font-size="11" fill="#6b7280">${yMinLabel}</text>
+      ${guides}
+      <line class="sparkline-baseline" x1="${padLeft.toFixed(1)}" y1="${baselineY.toFixed(1)}" x2="${(width - padRight).toFixed(1)}" y2="${baselineY.toFixed(1)}" />
+      ${dateTicks}
       <path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
       ${dots}
     </svg>
