@@ -78,6 +78,25 @@ test("detail parser surfaces 404 as HttpError(404) — does not silently return 
   );
 });
 
+test("detail parser does NOT retry internally on 5xx (retry lives in fetchDetailWithRetry)", async () => {
+  // Regression for P1#1: scrapeMarketplaceDetail used to call retrying
+  // fetchHtml(), which combined with fetchDetailWithRetry's own 3-attempt
+  // loop produced 9 upstream requests and ~24s of sleep per stuck detail.
+  // Detali w produkcji lecą sekwencyjnie (DETAIL_CONCURRENCY=1), więc
+  // pojedynczy 5xx outage zżerał całe okno 90-minutowego workflow zanim
+  // run zdążył się zapisać jako PARTIAL/FAILED. Retry musi żyć w jednej
+  // warstwie - tu pilnujemy że scrapeDetail robi dokładnie 1 fetch.
+  const { stub, calls } = makeFetchStub({
+    [DETAIL_URL]: new StubResponse({ status: 503, body: "<html>upstream gone</html>" }),
+  });
+
+  await assert.rejects(
+    () => scrapeDetail(FAKE_CARD, stub),
+    (err) => err instanceof HttpError && err.status === 503,
+  );
+  assert.equal(calls.length, 1, "scrapeMarketplaceDetail must not retry internally");
+});
+
 test("detail parser rejects when __NEXT_DATA__ is missing", async () => {
   const { stub } = makeFetchStub({
     [DETAIL_URL]: new StubResponse({ body: "<html>maintenance</html>" }),

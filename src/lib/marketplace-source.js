@@ -140,7 +140,13 @@ export async function scrapeMarketplaceListingCards(url, fetchImpl = fetch) {
 }
 
 export async function scrapeMarketplaceDetail(card, fetchImpl = fetch) {
-  const detailHtml = await fetchHtml(fetchImpl, card.url);
+  // Single-shot fetch; retry żyje wyłącznie w `fetchDetailWithRetry` w
+  // scrape.js. Dwie nakładające się pętle (3 outer × 3 inner = 9 requestów,
+  // ~24s sleepu na zacięty 5xx detail) potrafiły zjeść 90-minutowy workflow,
+  // bo detale lecą sekwensjonalnie (DETAIL_CONCURRENCY=1). `fetchListingPage`
+  // dalej używa retryującego `fetchHtml`, bo discovery hituje upstream tylko
+  // 1-2 razy na run i tam jedna warstwa retry to akceptowalny koszt.
+  const detailHtml = await fetchHtmlOnce(fetchImpl, card.url);
   const advert = extractAdvert(detailHtml);
   return normalizeDetail(advert, card);
 }
