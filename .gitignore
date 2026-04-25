@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 node_modules/
 output/
+local-payload-archive/
 db/*.sqlite-journal
 db/*.sqlite-wal
 db/*.sqlite-shm
