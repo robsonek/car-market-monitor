@@ -37,8 +37,19 @@ const PAGE_1_URL = `${SOURCE_URL}?search%5Border%5D=created_at%3Adesc`;
 const PAGE_N_URL = (n) => `${SOURCE_URL}?page=${n}&search%5Border%5D=created_at%3Adesc`;
 
 // Pre-computed empty-edges HTML reused to terminate the listing pagination
-// loop within PAGINATION_SAFETY_MARGIN (=2) extra pages.
+// loop within PAGINATION_SAFETY_MARGIN (=2) extra pages. Inherits totalCount
+// from the fixture (=87), which matches real-world out-of-range pages where
+// upstream raportuje totalCount>0 ale page>1 zwraca puste edges.
 const EMPTY_EDGES_HTML = withEmptyEdges(LISTING_HTML_BASE);
+
+// Pre-computed "source went empty" HTML — totalCount=0 + edges=[]. Używane
+// jako page 1 w testach reconcile/MISSING/reactivation, gdzie modelujemy
+// legalnie wyczyszczone źródło. Z totalCount>0 + edges=[] discovery rzuca
+// (anomaly guard), bo to sygnał bot-challenge'u, nie pustego stocku.
+const EMPTY_LISTING_HTML = withPagination(withEmptyEdges(LISTING_HTML_BASE), {
+  totalCount: 0,
+  pageSize: 32,
+});
 
 // Builds a one-card listing HTML whose only edge is retagged to FIXTURE_DETAIL_ID
 // + FIXTURE_DETAIL_URL. Used by every flow test that drives a single
@@ -112,4 +123,4 @@ export function detailRoute({ status = 200, body = DETAIL_HTML, url = FIXTURE_DE
   };
 }
 
-export { PAGE_1_URL, PAGE_N_URL, EMPTY_EDGES_HTML };
+export { PAGE_1_URL, PAGE_N_URL, EMPTY_EDGES_HTML, EMPTY_LISTING_HTML };

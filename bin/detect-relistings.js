@@ -99,6 +99,10 @@ const tx = db.transaction(() => {
   }
 
   // 1. VIN matches (only valid VINs)
+  //    - old listing must be inactive: dwa równoległe aktywne listingi z tym
+  //      samym VIN to dealer inventory albo duplikat, nie wznowienie. Runtime
+  //      detection w scrape.js też wymaga old.is_active=0 — backfill musi mieć
+  //      tę samą semantykę żeby nie tworzyć fałszywych par.
   const vinCount = db
     .prepare(
       `INSERT OR IGNORE INTO listing_relistings
@@ -115,6 +119,7 @@ const tx = db.transaction(() => {
        JOIN listings new ON old.vin = new.vin
          AND old.source_id = new.source_id
          AND old.id != new.id
+         AND old.is_active = 0
          AND old.first_seen_at < new.first_seen_at
        WHERE old.vin IN (SELECT vin FROM temp.valid_vins)`,
     )
@@ -122,6 +127,7 @@ const tx = db.transaction(() => {
   console.log(`VIN matches: ${vinCount.changes} new pairs`);
 
   // 2. Registration matches (skip pairs already linked by VIN)
+  //    - old.is_active = 0 z tego samego powodu co przy VIN (patrz wyżej)
   const regCount = db
     .prepare(
       `INSERT OR IGNORE INTO listing_relistings
@@ -138,6 +144,7 @@ const tx = db.transaction(() => {
        JOIN listings new ON old.registration = new.registration
          AND old.source_id = new.source_id
          AND old.id != new.id
+         AND old.is_active = 0
          AND old.first_seen_at < new.first_seen_at
        WHERE old.registration IN (SELECT registration FROM temp.valid_regs)
          AND NOT EXISTS (

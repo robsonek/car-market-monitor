@@ -65,6 +65,21 @@ export async function scrapeMarketplaceListingCards(url, fetchImpl = fetch) {
   rawCards.push(...extractListingCards(firstSearch, 1));
   console.log(`[discovery] page 1: ${rawCards.length} cards`);
 
+  // Anomaly guard: upstream zaraportował totalCount>0, ale page 1 oddała 0
+  // edges. Empirycznie zdarza się przy bot-challenge / throttlingu, kiedy
+  // szkielet HTML wraca bez danych. fetchListingPage retryuje brak
+  // `advertSearch`, ale `edges:[]` przy obecnym `advertSearch` to legalna
+  // odpowiedź dla page>1 (out-of-range) — na page 1 jest patologią.
+  // Bez tego throw'a discovery zwraca 0 unikalnych kart, computeStatus
+  // klasyfikuje run jako SUCCESS, reconcile bumpuje missed_count na całej
+  // bazie i po dwóch takich runach hysteresis flipuje wszystkie ogłoszenia
+  // na MISSING. Lepiej zapisać FAILED run niż zafałszować stan bazy.
+  if (totalCount > 0 && rawCards.length === 0) {
+    throw new Error(
+      `Discovery anomaly: totalCount=${totalCount} but page 1 returned 0 cards for ${normalizedUrl}`,
+    );
+  }
+
   let actualPageCount = 1;
   for (let page = 2; page <= maxPage; page += 1) {
     await sleep(PAGINATION_DELAY_MS);

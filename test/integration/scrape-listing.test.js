@@ -152,6 +152,39 @@ test("listing discovery throws on first-page 404 (cannot kick off discovery)", a
   );
 });
 
+test("listing discovery throws when first page has totalCount>0 but zero edges", async () => {
+  // Regression for P1#2: jeśli upstream zwróci HTTP 200 + advertSearch z
+  // niezerowym totalCount i pustą listą edges na page 1 (bot-challenge,
+  // throttling, skeleton bez danych), discovery NIE może po cichu zwrócić 0
+  // kart - bo computeStatus(0,0) sklasyfikuje to jako SUCCESS, a reconcile
+  // zwiększy missed_count na całej bazie i po dwóch takich runach hysteresis
+  // sflipuje wszystkie listings na MISSING. Zamiast tego musi rzucić, żeby
+  // run zapisał się jako FAILED bez dotykania missed_count.
+  const page1 = withPagination(withEmptyEdges(LISTING_HTML), { totalCount: 87, pageSize: 32 });
+  const { stub } = makeFetchStub({
+    [PAGE_1]: new StubResponse({ body: page1 }),
+  });
+  await assert.rejects(
+    () => scrapeListingCards(SOURCE_URL, stub),
+    (err) => err instanceof Error && /Discovery anomaly/.test(err.message),
+  );
+});
+
+test("listing discovery accepts empty first page when totalCount is 0 (legit empty source)", async () => {
+  // Counter-test: legalnie pusta kategoria (np. nowo dodane źródło bez
+  // matchujących listings) powinna przechodzić bez błędu - guard celuje
+  // wyłącznie w totalCount>0 z pustymi edges. Page 2 stubowany dla
+  // PAGINATION_SAFETY_MARGIN (parser próbuje page 2 nawet przy totalCount=0).
+  const page1 = withPagination(withEmptyEdges(LISTING_HTML), { totalCount: 0, pageSize: 32 });
+  const { stub } = makeFetchStub({
+    [PAGE_1]: new StubResponse({ body: page1 }),
+    [pageN(2)]: new StubResponse({ body: EMPTY_EDGES_HTML }),
+  });
+  const result = await scrapeListingCards(SOURCE_URL, stub);
+  assert.equal(result.unique_cards.length, 0);
+  assert.equal(result.metadata.reported_total_count, 0);
+});
+
 test("listing discovery rejects mid-pagination 404 the same way as 5xx", async () => {
   // 404 mid-pagination is also a hard error, NOT end-of-pagination, because
   // The source returns 200 + empty edges for legit out-of-range pages. Anything

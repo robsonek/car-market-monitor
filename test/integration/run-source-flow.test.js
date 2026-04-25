@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import {
   createDriver,
   detailRoute,
-  EMPTY_EDGES_HTML,
+  EMPTY_LISTING_HTML,
   FIXTURE_DETAIL_ID,
   FIXTURE_DETAIL_URL,
   listingRoute,
@@ -134,7 +134,7 @@ test("MISSING_THRESHOLD: single miss does NOT flip is_active; second consecutive
   // to 1 but is_active MUST stay 1 — one transient miss isn't enough to
   // flip a listing to MISSING (otherwise promoted-ad shuffle on the source
   // would generate false positives every other run).
-  const run2 = await driver.runOnce(listingRoute(EMPTY_EDGES_HTML));
+  const run2 = await driver.runOnce(listingRoute(EMPTY_LISTING_HTML));
   assert.equal(run2.result.removed_listings_count, 0, "single miss must not count as removed");
 
   row = getListing(driver.db, FIXTURE_DETAIL_ID);
@@ -147,7 +147,7 @@ test("MISSING_THRESHOLD: single miss does NOT flip is_active; second consecutive
   // Run 3: still missing. missed_count hits MISSING_THRESHOLD (2), is_active
   // flips to 0, summary.removed_listings_count bumps, __listing_status
   // ACTIVE→MISSING is emitted.
-  const run3 = await driver.runOnce(listingRoute(EMPTY_EDGES_HTML));
+  const run3 = await driver.runOnce(listingRoute(EMPTY_LISTING_HTML));
   assert.equal(run3.result.removed_listings_count, 1, "second consecutive miss should remove");
 
   row = getListing(driver.db, FIXTURE_DETAIL_ID);
@@ -169,8 +169,8 @@ test("reactivation: listing returning after MISSING flip emits __listing_status 
 
   // Setup: drive the same path as the MISSING test until is_active=0
   await driver.runOnce({ ...listingRoute(listingHtml), ...detailRoute() });
-  await driver.runOnce(listingRoute(EMPTY_EDGES_HTML));
-  await driver.runOnce(listingRoute(EMPTY_EDGES_HTML));
+  await driver.runOnce(listingRoute(EMPTY_LISTING_HTML));
+  await driver.runOnce(listingRoute(EMPTY_LISTING_HTML));
 
   let row = getListing(driver.db, FIXTURE_DETAIL_ID);
   assert.equal(row.is_active, 0, "test setup precondition: row should be MISSING by now");
