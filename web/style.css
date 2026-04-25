@@ -917,8 +917,9 @@ button.secondary {
   vector-effect: non-scaling-stroke;
 }
 
+.sparkline-axis-label,
 .sparkline-date {
-  fill: #6b7280;
+  fill: var(--muted);
   font-size: 11px;
 }
 

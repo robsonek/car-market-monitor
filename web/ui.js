@@ -532,8 +532,8 @@ export function renderSparkline(series, width, height, { color = "#2563eb", form
 
   const svg = `
     <svg class="sparkline" viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet">
-      <text x="8" y="${(padTop + 4).toFixed(0)}" font-size="11" fill="#6b7280">${yMaxLabel}</text>
-      <text x="8" y="${(baselineY + 4).toFixed(0)}" font-size="11" fill="#6b7280">${yMinLabel}</text>
+      <text class="sparkline-axis-label" x="8" y="${(padTop + 4).toFixed(0)}">${yMaxLabel}</text>
+      <text class="sparkline-axis-label" x="8" y="${(baselineY + 4).toFixed(0)}">${yMinLabel}</text>
       ${guides}
       <line class="sparkline-baseline" x1="${padLeft.toFixed(1)}" y1="${baselineY.toFixed(1)}" x2="${(width - padRight).toFixed(1)}" y2="${baselineY.toFixed(1)}" />
       ${dateTicks}
